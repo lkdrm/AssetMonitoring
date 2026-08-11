@@ -1,0 +1,125 @@
+{
+  "devices": [
+    {
+      "code": "WH-001",
+      "name": "North Temperature Sensor",
+      "hardwareModel": "ESP32",
+      "hardwareRevision": "1.0",
+      "firmwareVersion": "1.0.0",
+      "location": "Warehouse North",
+      "capabilities": [
+        "Temperature",
+        "Humidity"
+      ]
+    },
+    {
+      "code": "WH-002",
+      "name": "South temperature sensor",
+      "hardwareModel": "ESP32",
+      "hardwareRevision": "1.0",
+      "firmwareVersion": "1.0.0",
+      "location": "Warehouse South",
+      "capabilities": [
+        "Temperature",
+        "Humidity"
+      ]
+    },
+    {
+      "code": "WH-003",
+      "name": "Cold room controller",
+      "hardwareModel": "ESP64",
+      "hardwareRevision": "1.1",
+      "firmwareVersion": "1.2.3",
+      "location": "Warehouse Room",
+      "capabilities": [
+        "Temperature",
+        "Humidity",
+        "DoorState"
+      ]
+    },
+    {
+      "code": "WH-004",
+      "name": "Freezer controller",
+      "hardwareModel": "GoG",
+      "hardwareRevision": "1.4",
+      "firmwareVersion": "2.6.0",
+      "location": "Warehouse",
+      "capabilities": [
+        "Temperature",
+        "DoorState"
+      ]
+    },
+    {
+      "code": "WH-005",
+      "name": "Main entrance",
+      "hardwareModel": "EPS45",
+      "hardwareRevision": "4.0",
+      "firmwareVersion": "5.4.8",
+      "location": "Warehouse Main Entrance",
+      "capabilities": [
+        "DoorState"
+      ]
+    },
+    {
+      "code": "WH-006",
+      "name": "Loading Bay Entrance",
+      "hardwareModel": "Siemens S7-1200",
+      "hardwareRevision": "2.1",
+      "firmwareVersion": "4.5.2",
+      "location": "Warehouse Loading Bay",
+      "capabilities": [
+        "DoorState"
+      ]
+    },
+    {
+      "code": "WH-007",
+      "name": "Main Hall Lighting",
+      "hardwareModel": "Arduino Mega 2560",
+      "hardwareRevision": "R3",
+      "firmwareVersion": "2.3.0",
+      "location": "Warehouse Main Hall",
+      "capabilities": [
+        "LightState"
+      ]
+    },
+    {
+      "code": "WH-008",
+      "name": "Loading Bay Lighting",
+      "hardwareModel": "STM32F407",
+      "hardwareRevision": "2.0",
+      "firmwareVersion": "3.1.4",
+      "location": "Warehouse Loading Bay",
+      "capabilities": [
+        "LightState"
+      ]
+    },
+    {
+      "code": "WH-009",
+      "name": "Warehouse Controller A",
+      "hardwareModel": "ID700",
+      "hardwareRevision": "3.2",
+      "firmwareVersion": "5.4.1",
+      "location": "Warehouse Control Room A",
+      "capabilities": [
+        "Temperature",
+        "Humidity",
+        "DoorState",
+        "LightState"
+      ]
+    },
+    {
+      "code": "WH-010",
+      "name": "Warehouse Controller B",
+      "hardwareModel": "WAGO PFC200",
+      "hardwareRevision": "2.3",
+      "firmwareVersion": "4.7.3",
+      "location": "Warehouse Control Room B",
+      "capabilities": [
+        "Temperature",
+        "Humidity",
+        "DoorState",
+        "LightState"
+      ]
+    }
+  ]
+}

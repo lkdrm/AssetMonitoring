@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="src/AssetMonitoring.Api/AssetMonitoring.Api.csproj" />
+  <Project Path="src/AssetMonitoring.Modules.Alerting/AssetMonitoring.Modules.Alerting.csproj" Id="058d8043-cb8c-4b46-916a-00f31313e7bf" />
+  <Project Path="src/AssetMonitoring.Modules.DeviceManagement/AssetMonitoring.Modules.DeviceManagement.csproj" Id="d96d0fb8-c2a0-4faa-80a0-eb8ab5045ac4" />
+  <Project Path="src/AssetMonitoring.Modules.Notifications/AssetMonitoring.Modules.Notifications.csproj" Id="51b66b22-3172-450f-a59b-fa7b67d05616" />
+  <Project Path="src/AssetMonitoring.Modules.Telemetry/AssetMonitoring.Modules.Telemetry.csproj" Id="486f324b-1431-4de6-a57f-f285f791b89c" />
+</Solution>
