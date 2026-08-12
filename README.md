@@ -183,8 +183,8 @@ Implemented endpoints:
 |---|---|---|:---:|
 | `GET` | `/api/device-catalog/validation` | Read and validate the configured catalog | ✅ |
 | `POST` | `/api/device-catalog/synchronize` | Synchronize the catalog with SQL Server | ✅ |
-| `GET` | `/api/devices` | Query devices from SQL Server | ⬜ |
-| `GET` | `/api/devices/{code}` | Query a specific device by code | ⬜ |
+| `GET` | `/api/devices` | Query devices from SQL Server | ✅ |
+| `GET` | `/api/devices/{code}` | Query a specific device by code | ✅ |
 | `POST` | `/api/devices/{deviceId}/activate` | Activate device monitoring | ⬜ |
 | `POST` | `/api/devices/{deviceId}/heartbeat` | Receive a device heartbeat | ⬜ |
 | `POST` | `/api/telemetry` | Receive device telemetry | ⬜ |
@@ -351,7 +351,8 @@ telemetry processing.
 | ✅ | SQL persistence | EF Core configuration, repository, migration, and SQL schema |
 | ✅ | Synchronization API | Catalog synchronization through HTTP POST |
 | ✅ | Manual end-to-end verification | JSON → API → EF Core → SQL Server |
-| 🚧 | Device Query API | List devices and retrieve a device by code |
+| ✅ | Device Query API | List devices and retrieve a device by code |
+| 🚧 | Continuous integration | PR restore and Release build workflow pending first GitHub run |
 | ⬜ | Device activation | Explicit monitoring activation |
 | ⬜ | API error handling | Problem Details and global exception handling |
 | ⬜ | Structured logging | Synchronization and lifecycle events |

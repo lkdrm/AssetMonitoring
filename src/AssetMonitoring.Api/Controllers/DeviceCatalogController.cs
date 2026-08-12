@@ -21,6 +21,7 @@ public sealed class DeviceCatalogController : ControllerBase
     /// </summary>
     /// <param name="deviceCatalogLoader">The service used to load and validate the device catalog.</param>
     /// <param name="environment">Information about the API hosting environment.</param>
+    /// <param name="synchronizationService">The service used to synchronize the device catalog.</param>
     public DeviceCatalogController(DeviceCatalogLoader deviceCatalogLoader, IWebHostEnvironment environment, DeviceCatalogSynchronizationService synchronizationService)
     {
         ArgumentNullException.ThrowIfNull(deviceCatalogLoader);
