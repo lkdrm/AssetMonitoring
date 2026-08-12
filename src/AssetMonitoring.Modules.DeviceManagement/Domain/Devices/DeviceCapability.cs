@@ -8,20 +8,20 @@ public enum DeviceCapability
     /// <summary>
     /// Measures temperature.
     /// </summary>
-    Temperature,
+    Temperature = 0,
 
     /// <summary>
     /// Measures relative humidity.
     /// </summary>
-    Humidity,
+    Humidity = 1,
 
     /// <summary>
     /// Reports whether a door is open or closed.
     /// </summary>
-    DoorState,
+    DoorState = 2,
 
     /// <summary>
     /// Reports whether a light is on or off.
     /// </summary>
-    LightState
+    LightState = 3
 }

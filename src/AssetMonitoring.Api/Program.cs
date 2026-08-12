@@ -1,18 +1,19 @@
-using AssetMonitoring.Modules.DeviceManagement.Application.DeviceCatalog;
-using AssetMonitoring.Modules.DeviceManagement.Application.DeviceCatalog.Validation;
-using AssetMonitoring.Modules.DeviceManagement.Application.Interfaces;
+using AssetMonitoring.Modules.DeviceManagement.Application.Infrastructure;
+using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+builder.Services.AddControllers().AddJsonOptions(options =>
+{
+    options.JsonSerializerOptions.Converters.Add(
+        new JsonStringEnumConverter(allowIntegerValues: false));
+});
 
-builder.Services.AddControllers();
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
+var deviceManagementConnectionString = builder.Configuration.GetConnectionString("DeviceManagement") ?? throw new InvalidOperationException(
+        "The DeviceManagement database connection string is missing.");
+
+builder.Services.AddDeviceManagement(deviceManagementConnectionString);
 builder.Services.AddOpenApi();
-
-builder.Services.AddSingleton<IDeviceCatalogReader, JsonDeviceCatalogReader>();
-builder.Services.AddSingleton<DeviceCatalogValidator>();
-builder.Services.AddSingleton<DeviceCatalogLoader>();
 
 var app = builder.Build();
 

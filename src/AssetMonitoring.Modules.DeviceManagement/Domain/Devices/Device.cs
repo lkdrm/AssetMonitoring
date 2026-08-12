@@ -15,26 +15,46 @@ public class Device
     /// Gets the unique catalog code used to identify the device,
     /// for example, ENTRANCE-01.
     /// </summary>
-    public string Code { get; private set; }
+    public string Code { get; private set; } = null!;
 
-    public string Name { get; private set; }
+    /// <summary>
+    /// Gets the human-readable device name.
+    /// </summary>
+    public string Name { get; private set; } = null!;
 
-    public string HardwareModel { get; private set; }
+    /// <summary>
+    /// Gets the hardware model of the device.
+    /// </summary>
+    public string HardwareModel { get; private set; } = null!;
 
-    public string HardwareRevision { get; private set; }
+    /// <summary>
+    /// Gets the hardware revision of the device.
+    /// </summary>
+    public string HardwareRevision { get; private set; } = null!;
 
-    public string FirmwareVersion { get; private set; }
+    /// <summary>
+    /// Gets the firmware version currently installed on the device.
+    /// </summary>
+    public string FirmwareVersion { get; private set; } = null!;
 
-    public string Location { get; private set; }
+    /// <summary>
+    /// Gets the physical or logical location of the device.
+    /// </summary>
+    public string Location { get; private set; } = null!;
 
     /// <summary>
     /// Gets the telemetry types supported by the device.
     /// Capabilities describe what the device can measure,
     /// but do not contain current telemetry values.
     /// </summary>
-    private readonly HashSet<DeviceCapability> _capabilities;
+    private readonly List<DeviceCapability> _capabilities = [];
 
-    public IReadOnlySet<DeviceCapability> Capabilities => _capabilities;
+    /// <summary>
+    /// Gets the telemetry types supported by the device.
+    /// Capabilities describe what the device can report
+    /// but do not contain current telemetry values.
+    /// </summary>
+    public IReadOnlyCollection<DeviceCapability> Capabilities => _capabilities;
 
     /// <summary>
     /// Gets the UTC timestamp when the device was registered.
@@ -52,6 +72,8 @@ public class Device
     /// or null when it is not retired.
     /// </summary>
     public DateTime? RetiredAtUtc { get; private set; }
+
+    private Device() { }
 
     /// <summary>
     /// Creates a registered device with its catalog metadata and capabilities.
@@ -87,7 +109,7 @@ public class Device
         HardwareRevision = hardwareRevision;
         FirmwareVersion = firmwareVersion;
         Location = location;
-        _capabilities = capabilities.ToHashSet();
+        _capabilities.AddRange(capabilities.Distinct());
         RegisteredAtUtc = registeredAtUtc;
         Lifecycle = DeviceLifecycle.Registered;
         RetiredAtUtc = null;
@@ -174,7 +196,7 @@ public class Device
         var newCapabilities = capabilities.ToHashSet();
 
         var metadataIsEqual = currentMetadata == incomingMetadata;
-        var capabilitiesAreEqual = _capabilities.SetEquals(newCapabilities);
+        var capabilitiesAreEqual = newCapabilities.SetEquals(_capabilities);
 
         if (metadataIsEqual && capabilitiesAreEqual)
         {
@@ -195,6 +217,6 @@ public class Device
         Location = location;
 
         _capabilities.Clear();
-        _capabilities.UnionWith(capabilities);
+        _capabilities.AddRange(capabilities);
     }
 }
