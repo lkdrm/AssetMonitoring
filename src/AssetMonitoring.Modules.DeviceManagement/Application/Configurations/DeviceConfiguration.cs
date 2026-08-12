@@ -37,10 +37,16 @@ internal sealed class DeviceConfiguration : IEntityTypeConfiguration<Device>
         builder.Property(device => device.Lifecycle).HasConversion<string>().HasMaxLength(50).IsRequired();
 
         // Registration time is always required.
-        builder.Property(device => device.RegisteredAtUtc).HasColumnType("datetime2").IsRequired();
+        builder.Property(device => device.RegisteredAtUtc).HasColumnType("datetime2")
+            .HasConversion(value => value,
+            value => DateTime.SpecifyKind(value, DateTimeKind.Utc))
+            .IsRequired();
 
         // Retirement time is optional.
-        builder.Property(device => device.RetiredAtUtc) .HasColumnType("datetime2").IsRequired(false);
+        builder.Property(device => device.RetiredAtUtc).HasColumnType("datetime2")
+            .HasConversion(value => value,
+            value => value.HasValue ? DateTime.SpecifyKind(value.Value, DateTimeKind.Utc) : null)
+            .IsRequired(false);
 
         // Case-insensitive
         builder.Property(device => device.Code).HasMaxLength(50).UseCollation("Latin1_General_100_CI_AS").IsRequired();

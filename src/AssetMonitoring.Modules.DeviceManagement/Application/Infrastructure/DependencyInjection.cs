@@ -4,6 +4,7 @@ using AssetMonitoring.Modules.DeviceManagement.Application.DeviceCatalog.Validat
 using AssetMonitoring.Modules.DeviceManagement.Application.Interfaces;
 using AssetMonitoring.Modules.DeviceManagement.Application.Repository;
 using AssetMonitoring.Modules.DeviceManagement.Application.Synchronization;
+using AssetMonitoring.Modules.DeviceManagement.Infrastructure.Persistence.Queries;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -28,6 +29,7 @@ public static class DependencyInjection
         services.AddDbContext<DeviceManagementDbContext>(options => options.UseSqlServer(connectionString));
         services.AddScoped<IDeviceRepository, DeviceRepository>();
         services.AddScoped<DeviceCatalogSynchronizationService>();
+        services.AddScoped<IDeviceQueries, DeviceQueries>();
 
         services.AddSingleton<IDeviceCatalogReader, JsonDeviceCatalogReader>();
         services.AddSingleton<DeviceCatalogValidator>();
