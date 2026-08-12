@@ -18,12 +18,7 @@ public sealed class JsonDeviceCatalogReader : IDeviceCatalogReader
 
         var document = await JsonSerializer.DeserializeAsync<DeviceCatalogDocument>(stream, options: SerializerOptions, cancellationToken: cancellationToken);
 
-        if (document is null)
-        {
-            throw new JsonException("Device catalog JSON produced a null document.");
-        }
-
-        return document;
+        return document is null ? throw new JsonException("Device catalog JSON produced a null document.") : document;
     }
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
