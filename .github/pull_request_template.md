@@ -11,6 +11,7 @@
 - [ ] Feature
 - [ ] Bug fix
 - [ ] Refactoring
+- [ ] Tests
 - [ ] Documentation
 - [ ] Database or migration
 - [ ] CI or tooling
@@ -55,6 +56,7 @@ Details:
 
 - [ ] `dotnet restore AssetMonitoring.slnx` succeeds
 - [ ] Release build succeeds locally
+- [ ] All automated tests pass locally
 - [ ] Changed API endpoints were manually verified
 - [ ] Expected error responses were verified
 - [ ] SQL data was verified when persistence changed
@@ -70,6 +72,22 @@ Details:
 - [ ] Public API and database changes are documented
 - [ ] No secrets, logs, `bin`, `obj`, or local files were committed
 - [ ] I reviewed the complete diff before opening the pull request
+
+## Automated change summary
+
+<!-- change-summary:start -->
+
+⏳ Waiting for GitHub Actions to generate the change summary.
+
+<!-- change-summary:end -->
+
+## Automated CI verification
+
+<!-- ci-results:start -->
+
+⏳ Waiting for GitHub Actions to complete the build and tests.
+
+<!-- ci-results:end -->
 
 ## Related issue
 
