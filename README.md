@@ -5,6 +5,7 @@
 ![EF Core](https://img.shields.io/badge/EF%20Core-10.0-512BD4)
 ![SQL Server](https://img.shields.io/badge/SQL%20Server-persistence-CC2927)
 ![Device Catalog](https://img.shields.io/badge/device%20catalog-complete-success)
+![Tests](https://img.shields.io/badge/tests-91%20passing-success)
 
 > [!WARNING]
 > This project is under active development. Its public API, persistence model,
@@ -70,6 +71,8 @@ AssetMonitoring
 │   ├── AssetMonitoring.Modules.Telemetry
 │   ├── AssetMonitoring.Modules.Alerting
 │   └── AssetMonitoring.Modules.Notifications
+├── tests
+│   └── AssetMonitoring.Modules.DeviceManagement.Tests
 ├── Directory.Build.props
 ├── AssetMonitoring.slnx
 └── README.md
@@ -243,6 +246,22 @@ The complete Device Catalog flow has been manually verified.
 | Retired device history preserved | 11 physical SQL rows, 10 current catalog devices | ✅ |
 | Final repeated synchronization | No unnecessary SQL changes | ✅ |
 
+## Automated verification
+
+The Device Management vertical slice is protected by 91 automated xUnit test
+cases covering:
+
+- domain invariants and lifecycle behavior;
+- catalog validation and JSON loading;
+- synchronization, restoration, retirement, and idempotency;
+- Entity Framework Core mappings and SQLite persistence;
+- dependency-injection registrations and lifetimes;
+- API routing, JSON contracts, filtering, and Problem Details responses.
+
+Pull requests run restore, Release build, and all tests through GitHub Actions.
+The workflow publishes the real TRX totals for passed, failed, and skipped
+tests in both the workflow summary and the generated pull request description.
+
 ## Database model
 
 The current `device_management.Devices` table contains:
@@ -336,7 +355,7 @@ Manual verification
 Automated tests
 ```
 
-The current focus is completing the Device Management backend before beginning
+The current focus is explicit Device Management activation before beginning
 telemetry processing.
 
 ## Roadmap
@@ -352,7 +371,8 @@ telemetry processing.
 | ✅ | Synchronization API | Catalog synchronization through HTTP POST |
 | ✅ | Manual end-to-end verification | JSON → API → EF Core → SQL Server |
 | ✅ | Device Query API | List devices and retrieve a device by code |
-| 🚧 | Continuous integration | PR restore and Release build workflow pending first GitHub run |
+| ✅ | Automated tests | 91 domain, application, persistence, DI, and API test cases |
+| ✅ | Continuous integration | Restore, Release build, tests, and generated PR verification report |
 | ⬜ | Device activation | Explicit monitoring activation |
 | ⬜ | API error handling | Problem Details and global exception handling |
 | ⬜ | Structured logging | Synchronization and lifecycle events |
@@ -366,23 +386,20 @@ telemetry processing.
 | ⬜ | MediatR | Internal commands and application events |
 | ⬜ | Polly | Retry and resilience policies |
 | ⬜ | SignalR dashboard | Real-time warehouse visualization and animations |
-| ⬜ | Automated tests | Unit, integration, and API tests |
-| ⬜ | Continuous integration | Restore, build, and test pipeline |
 | ⬜ | Production readiness | Authentication, authorization, observability, and containers |
 
 ## Next milestone
 
-Implement the Device Management read-side API:
+Implement explicit Device Management activation:
 
-- `GET /api/devices`
-- `GET /api/devices/{code}`
-- response DTOs
-- read-only EF Core queries with `AsNoTracking`
-- lifecycle filtering
-- consistent not-found responses
+- define the transition from `Registered` to `Active`;
+- add an activation application use case;
+- expose `POST /api/devices/{deviceId}/activate`;
+- make repeated activation idempotent;
+- add domain, application, persistence, and API tests.
 
-After the complete Device Management backend is ready, automated unit,
-integration, and API tests will be added.
+After activation, the next vertical slice will introduce device heartbeat and
+telemetry ingestion.
 
 ## Technology direction
 
@@ -396,10 +413,12 @@ Current technologies:
 - System.Text.Json
 - OpenAPI
 - XML documentation
+- xUnit
+- SQLite for isolated integration tests
+- GitHub Actions
 
 Planned technologies where they provide real value:
 
-- xUnit
 - FluentAssertions
 - MediatR
 - RabbitMQ
@@ -413,8 +432,9 @@ Planned technologies where they provide real value:
 
 The project is not production-ready yet.
 
-The first Device Management vertical slice is operational: the API reads and
-validates the device catalog, synchronizes its state, stores devices in SQL
-Server, and preserves retired device history.
+The first Device Management vertical slice is operational and covered by
+automated tests: the API reads and validates the device catalog, synchronizes
+its state, stores devices in SQL Server, preserves retired device history, and
+serves read-only device queries.
 
-The next goal is exposing devices through a read-only query API.
+The next goal is implementing explicit monitoring activation.

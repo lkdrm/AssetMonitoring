@@ -102,6 +102,11 @@ public class Device
             throw new ArgumentException("Registration time must be UTC.", nameof(registeredAtUtc));
         }
 
+        if (capabilities.Distinct().ToArray().Length == 0)
+        {
+            throw new ArgumentException("At least one device capability is required.", nameof(capabilities));
+        }
+
         Id = Guid.NewGuid();
         Code = code;
         Name = name;
@@ -189,6 +194,11 @@ public class Device
         if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(hardwareModel) || string.IsNullOrWhiteSpace(hardwareRevision) || string.IsNullOrWhiteSpace(firmwareVersion) || string.IsNullOrWhiteSpace(location) || capabilities == null)
         {
             throw new ArgumentException("Required device data is missing or invalid.");
+        }
+
+        if (capabilities.Distinct().ToArray().Length == 0)
+        {
+            throw new ArgumentException("At least one device capability is required.", nameof(capabilities));
         }
 
         var currentMetadata = (Name, HardwareModel, HardwareRevision, FirmwareVersion, Location);

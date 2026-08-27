@@ -11,14 +11,15 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: ci-build
+  build-and-test:
+    name: Build and test
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -35,4 +36,48 @@ jobs:
         run: dotnet restore AssetMonitoring.slnx
 
       - name: Build solution
+        id: build
         run: dotnet build AssetMonitoring.slnx --configuration Release --no-restore
+
+      - name: Run tests
+        id: tests
+        run: >
+          dotnet test AssetMonitoring.slnx
+          --configuration Release
+          --no-build
+          --verbosity normal
+          --logger trx
+          --results-directory "${{ runner.temp }}/test-results"
+
+      - name: Generate CI summary
+        id: ci_summary
+        if: always()
+        shell: pwsh
+        run: |
+          $parameters = @{
+              ResultsDirectory = "${{ runner.temp }}/test-results"
+              BuildOutcome = "${{ steps.build.outcome }}"
+              TestOutcome = "${{ steps.tests.outcome }}"
+              OutputPath = "${{ runner.temp }}/ci-summary.md"
+          }
+
+          & ./.github/scripts/Write-CiSummary.ps1 @parameters
+
+      - name: Update pull request description
+        if: >
+          always() &&
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@v9
+        env:
+          CI_REPORT_PATH: ${{ runner.temp }}/ci-summary.md
+        with:
+          script: |
+            const updatePullRequestDescription =
+              require("./.github/scripts/update-pull-request-description.js");
+
+            await updatePullRequestDescription({
+                github,
+                context,
+                core,
+            });
