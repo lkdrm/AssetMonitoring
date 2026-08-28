@@ -110,6 +110,43 @@ public sealed class DeviceTests
     }
 
     [Fact]
+    public void ActivateRegisteredDeviceChangesLifecycleAndReturnsTrue()
+    {
+        var device = CreateDevice();
+
+        var changed = device.Activate();
+
+        Assert.True(changed);
+        Assert.Equal(DeviceLifecycle.Active, device.Lifecycle);
+        Assert.Null(device.RetiredAtUtc);
+    }
+
+    [Fact]
+    public void ActivateActiveDeviceReturnsFalseAndPreservesLifecycle()
+    {
+        var device = CreateDevice();
+        device.Activate();
+
+        var changed = device.Activate();
+
+        Assert.False(changed);
+        Assert.Equal(DeviceLifecycle.Active, device.Lifecycle);
+        Assert.Null(device.RetiredAtUtc);
+    }
+
+    [Fact]
+    public void ActivateRetiredDeviceThrowsAndPreservesRetirement()
+    {
+        var device = CreateDevice();
+        var retiredAtUtc = RegisteredAtUtc.AddDays(1);
+        device.Retire(retiredAtUtc);
+
+        Assert.Throws<InvalidOperationException>(() => device.Activate());
+        Assert.Equal(DeviceLifecycle.Retired, device.Lifecycle);
+        Assert.Equal(retiredAtUtc, device.RetiredAtUtc);
+    }
+
+    [Fact]
     public void RetireRegisteredDeviceChangesLifecycleAndStoresTimestamp()
     {
         var device = CreateDevice();

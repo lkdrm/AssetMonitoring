@@ -25,4 +25,12 @@ public interface IDeviceRepository
     /// </summary>
     /// <param name="cancellationToken">A token used to cancel the asynchronous operation.</param>
     Task SaveChangesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Asynchronously finds a device by its internal identifier.
+    /// </summary>
+    /// <param name="id">The device identifier.</param>
+    /// <param name="cancellationToken">A token used to cancel the asynchronous operation.</param>
+    /// <returns>The tracked device when found; otherwise, null.</returns>
+    Task<Device?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
 }

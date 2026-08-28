@@ -170,6 +170,31 @@ public class Device
     }
 
     /// <summary>
+    /// Activates monitoring for a registered device.
+    /// Repeated activation is idempotent.
+    /// </summary>
+    /// <returns>
+    /// True when the lifecycle changes to active; otherwise, false.
+    /// </returns>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when a retired device is activated before being restored.
+    /// </exception>
+    public bool Activate()
+    {
+        if (Lifecycle == DeviceLifecycle.Registered)
+        {
+            Lifecycle = DeviceLifecycle.Active;
+            return true;
+        }
+        else if (Lifecycle == DeviceLifecycle.Active)
+        {
+            return false;
+        }
+
+        throw new InvalidOperationException("A retired device must be restored before activation.");
+    }
+
+    /// <summary>
     /// Updates the catalog-managed metadata and capabilities of the device.
     /// </summary>
     /// <param name="name">Human-readable device name.</param>

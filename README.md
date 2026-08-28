@@ -5,7 +5,7 @@
 ![EF Core](https://img.shields.io/badge/EF%20Core-10.0-512BD4)
 ![SQL Server](https://img.shields.io/badge/SQL%20Server-persistence-CC2927)
 ![Device Catalog](https://img.shields.io/badge/device%20catalog-complete-success)
-![Tests](https://img.shields.io/badge/tests-91%20passing-success)
+![Tests](https://img.shields.io/badge/tests-104%20passing-success)
 
 > [!WARNING]
 > This project is under active development. Its public API, persistence model,
@@ -109,6 +109,9 @@ vertical slice.
 - Capability-set comparison
 - UTC timestamp validation
 - Read-only capability exposure
+- Explicit monitoring activation
+- Idempotent repeated activation
+- Retired devices must be restored before activation
 
 ### Device catalog
 
@@ -188,7 +191,7 @@ Implemented endpoints:
 | `POST` | `/api/device-catalog/synchronize` | Synchronize the catalog with SQL Server | ✅ |
 | `GET` | `/api/devices` | Query devices from SQL Server | ✅ |
 | `GET` | `/api/devices/{code}` | Query a specific device by code | ✅ |
-| `POST` | `/api/devices/{deviceId}/activate` | Activate device monitoring | ⬜ |
+| `POST` | `/api/devices/{deviceId}/activate` | Activate device monitoring | ✅ |
 | `POST` | `/api/devices/{deviceId}/heartbeat` | Receive a device heartbeat | ⬜ |
 | `POST` | `/api/telemetry` | Receive device telemetry | ⬜ |
 | `GET` | `/api/alerts` | Query generated alerts | ⬜ |
@@ -229,7 +232,10 @@ Example synchronization response:
 - Invalid catalog data must not modify SQL.
 - Malformed JSON and inaccessible files are treated as technical failures.
 - Device online/offline state will be calculated from heartbeat data.
-- Monitoring activation will be separate from catalog registration.
+- Monitoring activation is separate from catalog registration.
+- Registered devices can transition to `Active`.
+- Repeated activation is idempotent and does not write to the database.
+- Retired devices must be restored before activation.
 
 ## Manual verification
 
@@ -257,6 +263,8 @@ cases covering:
 - Entity Framework Core mappings and SQLite persistence;
 - dependency-injection registrations and lifetimes;
 - API routing, JSON contracts, filtering, and Problem Details responses.
+- device activation domain behavior and application orchestration;
+- activation API success, idempotency, not-found, and conflict responses;
 
 Pull requests run restore, Release build, and all tests through GitHub Actions.
 The workflow publishes the real TRX totals for passed, failed, and skipped
@@ -355,7 +363,7 @@ Manual verification
 Automated tests
 ```
 
-The current focus is explicit Device Management activation before beginning
+The current focus is device heartbeat and connectivity tracking before
 telemetry processing.
 
 ## Roadmap
@@ -371,9 +379,9 @@ telemetry processing.
 | ✅ | Synchronization API | Catalog synchronization through HTTP POST |
 | ✅ | Manual end-to-end verification | JSON → API → EF Core → SQL Server |
 | ✅ | Device Query API | List devices and retrieve a device by code |
-| ✅ | Automated tests | 91 domain, application, persistence, DI, and API test cases |
+| ✅ | Automated tests | 104 domain, application, persistence, DI, and API test cases |
 | ✅ | Continuous integration | Restore, Release build, tests, and generated PR verification report |
-| ⬜ | Device activation | Explicit monitoring activation |
+| ✅ | Device activation | Explicit and idempotent monitoring activation |
 | ⬜ | API error handling | Problem Details and global exception handling |
 | ⬜ | Structured logging | Synchronization and lifecycle events |
 | ⬜ | Telemetry domain | Numeric and state telemetry measurements |
@@ -390,16 +398,16 @@ telemetry processing.
 
 ## Next milestone
 
-Implement explicit Device Management activation:
+Implement device heartbeat and connectivity tracking:
 
-- define the transition from `Registered` to `Active`;
-- add an activation application use case;
-- expose `POST /api/devices/{deviceId}/activate`;
-- make repeated activation idempotent;
+- accept heartbeat messages from active devices;
+- store the last successful heartbeat timestamp;
+- distinguish never connected, online, and offline devices;
+- make heartbeat processing idempotent;
 - add domain, application, persistence, and API tests.
 
-After activation, the next vertical slice will introduce device heartbeat and
-telemetry ingestion.
+After heartbeat processing, the next vertical slice will introduce telemetry
+ingestion.
 
 ## Technology direction
 
@@ -432,9 +440,9 @@ Planned technologies where they provide real value:
 
 The project is not production-ready yet.
 
-The first Device Management vertical slice is operational and covered by
-automated tests: the API reads and validates the device catalog, synchronizes
-its state, stores devices in SQL Server, preserves retired device history, and
-serves read-only device queries.
+The Device Management vertical slice is operational and covered by automated
+tests. The API reads and validates the device catalog, synchronizes its state,
+stores devices in SQL Server, serves read-only queries, and provides explicit
+idempotent monitoring activation.
 
-The next goal is implementing explicit monitoring activation.
+The next goal is implementing device heartbeat and connectivity tracking.

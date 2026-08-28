@@ -26,8 +26,11 @@ internal sealed class FakeDeviceRepository : IDeviceRepository
 
     internal CancellationToken LastSaveCancellationToken { get; private set; }
 
-    public Task<IReadOnlyList<Device>> GetAllAsync(
-        CancellationToken cancellationToken = default)
+    internal int GetByIdCallCount { get; private set; }
+
+    internal CancellationToken LastGetByIdCancellationToken { get; private set; }
+
+    public Task<IReadOnlyList<Device>> GetAllAsync(CancellationToken cancellationToken = default)
     {
         GetAllCallCount++;
         LastGetAllCancellationToken = cancellationToken;
@@ -47,5 +50,15 @@ internal sealed class FakeDeviceRepository : IDeviceRepository
         LastSaveCancellationToken = cancellationToken;
 
         return Task.CompletedTask;
+    }
+
+    public Task<Device?> GetByIdAsync( Guid id,CancellationToken cancellationToken = default)
+    {
+        GetByIdCallCount++;
+        LastGetByIdCancellationToken = cancellationToken;
+
+        var device = _devices.SingleOrDefault(device => device.Id == id);
+
+        return Task.FromResult(device);
     }
 }
