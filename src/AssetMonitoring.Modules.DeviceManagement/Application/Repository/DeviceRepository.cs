@@ -26,5 +26,8 @@ internal sealed class DeviceRepository : IDeviceRepository
     public async Task<IReadOnlyList<Device>> GetAllAsync(CancellationToken cancellationToken = default) => await _dbContext.Devices.ToListAsync(cancellationToken);
 
     /// <inheritdoc />
+    public async Task<Device?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => await _dbContext.Devices.SingleOrDefaultAsync(d => d.Id == id, cancellationToken);
+
+    /// <inheritdoc />
     public Task SaveChangesAsync(CancellationToken cancellationToken = default) => _dbContext.SaveChangesAsync(cancellationToken);
 }

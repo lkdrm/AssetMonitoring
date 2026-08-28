@@ -1,4 +1,5 @@
-﻿using AssetMonitoring.Modules.DeviceManagement.Application.Devices;
+﻿using AssetMonitoring.Modules.DeviceManagement.Application.Activation;
+using AssetMonitoring.Modules.DeviceManagement.Application.Devices;
 using AssetMonitoring.Modules.DeviceManagement.Application.Interfaces;
 using AssetMonitoring.Modules.DeviceManagement.Domain.Devices;
 using Microsoft.AspNetCore.Mvc;
@@ -13,16 +14,24 @@ namespace AssetMonitoring.Api.Controllers;
 public sealed class DevicesController : ControllerBase
 {
     private readonly IDeviceQueries _deviceQueries;
+    private readonly DeviceActivationService _deviceActivationService;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="DevicesController"/> class.
     /// </summary>
     /// <param name="deviceQueries">The read-only Device Management query service.</param>
-    public DevicesController(IDeviceQueries deviceQueries)
+    /// <param name="deviceActivationService">The service used to activate device monitoring.</param>
+    /// <exception cref="ArgumentNullException">
+    /// Thrown when <paramref name="deviceQueries"/> or
+    /// <paramref name="deviceActivationService"/> is null.
+    /// </exception>
+    public DevicesController(IDeviceQueries deviceQueries, DeviceActivationService deviceActivationService)
     {
         ArgumentNullException.ThrowIfNull(deviceQueries);
+        ArgumentNullException.ThrowIfNull(deviceActivationService);
 
         _deviceQueries = deviceQueries;
+        _deviceActivationService = deviceActivationService;
     }
 
     /// <summary>
@@ -77,5 +86,56 @@ public sealed class DevicesController : ControllerBase
         }
 
         return Ok(devices);
+    }
+
+    /// <summary>
+    /// Activates monitoring for the specified device.
+    /// </summary>
+    /// <param name="deviceId">The identifier of the device to activate.</param>
+    /// <param name="cancellationToken">
+    /// A token used to cancel the asynchronous operation.
+    /// </param>
+    /// <returns>
+    /// The resulting device lifecycle and whether it was changed.
+    /// </returns>
+    /// <response code="200">
+    /// The device is active. Repeated activation returns
+    /// <c>false</c> in the <c>Changed</c> property.
+    /// </response>
+    /// <response code="404">
+    /// A device with the specified identifier was not found.
+    /// </response>
+    /// <response code="409">
+    /// The device cannot be activated in its current lifecycle.
+    /// </response>
+    [HttpPost("{deviceId:guid}/activate")]
+    [ProducesResponseType<DeviceActivationResult>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<DeviceActivationResult>> ActivateAsync([FromRoute] Guid deviceId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await _deviceActivationService.ActivateAsync(deviceId, cancellationToken);
+
+            if (result is null)
+            {
+                return Problem(
+                    statusCode: StatusCodes.Status404NotFound,
+                    title: "Device not found.",
+                    detail: $"A device with ID '{deviceId}' was not found.",
+                    instance: HttpContext.Request.Path);
+            }
+
+            return Ok(result);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Device cannot be activated.",
+                detail: exception.Message,
+                instance: HttpContext.Request.Path);
+        }
     }
 }
