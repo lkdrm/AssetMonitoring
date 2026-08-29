@@ -48,12 +48,17 @@ public sealed class DeviceManagementPersistenceTests
             entityType.FindProperty(nameof(Device.RegisteredAtUtc));
         var retiredProperty =
             entityType.FindProperty(nameof(Device.RetiredAtUtc));
+        var lastHeartbeatProperty =
+            entityType.FindProperty(nameof(Device.LastHeartbeatAtUtc));
         Assert.NotNull(registeredProperty);
         Assert.NotNull(retiredProperty);
+        Assert.NotNull(lastHeartbeatProperty);
         Assert.False(registeredProperty.IsNullable);
         Assert.True(retiredProperty.IsNullable);
+        Assert.True(lastHeartbeatProperty.IsNullable);
         Assert.Equal("datetime2", registeredProperty.GetColumnType());
         Assert.Equal("datetime2", retiredProperty.GetColumnType());
+        Assert.Equal("datetime2", lastHeartbeatProperty.GetColumnType());
 
         Assert.Null(entityType.FindProperty(nameof(Device.Capabilities)));
         var capabilitiesProperty = entityType.FindProperty("_capabilities");
@@ -84,6 +89,7 @@ public sealed class DeviceManagementPersistenceTests
         Assert.Equal(device.Name, loadedDevice.Name);
         Assert.Equal(DeviceLifecycle.Registered, loadedDevice.Lifecycle);
         Assert.Equal(DateTimeKind.Utc, loadedDevice.RegisteredAtUtc.Kind);
+        Assert.Null(loadedDevice.LastHeartbeatAtUtc);
         Assert.Equal(2, loadedDevice.Capabilities.Count);
         Assert.Contains(
             DeviceCapability.Temperature,
@@ -143,6 +149,33 @@ public sealed class DeviceManagementPersistenceTests
         Assert.Equal(DeviceLifecycle.Retired, loadedDevice.Lifecycle);
         Assert.Equal(retiredAtUtc, loadedDevice.RetiredAtUtc);
         Assert.Equal(DateTimeKind.Utc, loadedDevice.RetiredAtUtc?.Kind);
+    }
+
+    [Fact]
+    public async Task SaveAndReloadPreservesHeartbeatAsUtc()
+    {
+        using var database = new SqliteDeviceManagementDatabase();
+        var device = DeviceCatalogTestData.CreateDevice(
+            DeviceCatalogTestData.CreateItem());
+        var heartbeatAtUtc =
+            DeviceCatalogTestData.RegisteredAtUtc.AddMinutes(1);
+        device.Activate();
+        device.RecordHeartbeat(heartbeatAtUtc);
+
+        await using (var writeContext = database.CreateDbContext())
+        {
+            writeContext.Devices.Add(device);
+            await writeContext.SaveChangesAsync();
+        }
+
+        await using var readContext = database.CreateDbContext();
+        var loadedDevice = await readContext.Devices
+            .AsNoTracking()
+            .SingleAsync();
+
+        Assert.Equal(DeviceLifecycle.Active, loadedDevice.Lifecycle);
+        Assert.Equal(heartbeatAtUtc, loadedDevice.LastHeartbeatAtUtc);
+        Assert.Equal(DateTimeKind.Utc, loadedDevice.LastHeartbeatAtUtc?.Kind);
     }
 
     [Fact]

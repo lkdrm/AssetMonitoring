@@ -1,6 +1,8 @@
 using AssetMonitoring.Modules.DeviceManagement.Application.Database;
+using AssetMonitoring.Modules.DeviceManagement.Application.Activation;
 using AssetMonitoring.Modules.DeviceManagement.Application.DeviceCatalog;
 using AssetMonitoring.Modules.DeviceManagement.Application.DeviceCatalog.Validation;
+using AssetMonitoring.Modules.DeviceManagement.Application.Heartbeat;
 using AssetMonitoring.Modules.DeviceManagement.Application.Infrastructure;
 using AssetMonitoring.Modules.DeviceManagement.Application.Interfaces;
 using AssetMonitoring.Modules.DeviceManagement.Application.Synchronization;
@@ -43,6 +45,12 @@ public sealed class DependencyInjectionTests
         AssertLifetime<IDeviceRepository>(services, ServiceLifetime.Scoped);
         AssertLifetime<IDeviceQueries>(services, ServiceLifetime.Scoped);
         AssertLifetime<DeviceCatalogSynchronizationService>(
+            services,
+            ServiceLifetime.Scoped);
+        AssertLifetime<DeviceActivationService>(
+            services,
+            ServiceLifetime.Scoped);
+        AssertLifetime<DeviceHeartbeatService>(
             services,
             ServiceLifetime.Scoped);
         AssertLifetime<DeviceManagementDbContext>(

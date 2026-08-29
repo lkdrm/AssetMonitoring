@@ -48,6 +48,14 @@ internal sealed class DeviceConfiguration : IEntityTypeConfiguration<Device>
             value => value.HasValue ? DateTime.SpecifyKind(value.Value, DateTimeKind.Utc) : null)
             .IsRequired(false);
 
+        // The heartbeat time is optional because a device may never have connected.
+        // SQL Server datetime2 does not preserve DateTimeKind, so the converter
+        // restores DateTimeKind.Utc when EF Core materializes the nullable value.
+        builder.Property(device => device.LastHeartbeatAtUtc).HasColumnType("datetime2")
+            .HasConversion(value => value,
+            value => value.HasValue ? DateTime.SpecifyKind(value.Value, DateTimeKind.Utc) : null)
+            .IsRequired(false);
+
         // Case-insensitive
         builder.Property(device => device.Code).HasMaxLength(50).UseCollation("Latin1_General_100_CI_AS").IsRequired();
 

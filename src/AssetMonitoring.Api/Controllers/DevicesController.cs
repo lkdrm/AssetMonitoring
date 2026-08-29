@@ -1,5 +1,6 @@
 ﻿using AssetMonitoring.Modules.DeviceManagement.Application.Activation;
 using AssetMonitoring.Modules.DeviceManagement.Application.Devices;
+using AssetMonitoring.Modules.DeviceManagement.Application.Heartbeat;
 using AssetMonitoring.Modules.DeviceManagement.Application.Interfaces;
 using AssetMonitoring.Modules.DeviceManagement.Domain.Devices;
 using Microsoft.AspNetCore.Mvc;
@@ -15,23 +16,27 @@ public sealed class DevicesController : ControllerBase
 {
     private readonly IDeviceQueries _deviceQueries;
     private readonly DeviceActivationService _deviceActivationService;
+    private readonly DeviceHeartbeatService _deviceHeartbeatService;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="DevicesController"/> class.
     /// </summary>
     /// <param name="deviceQueries">The read-only Device Management query service.</param>
     /// <param name="deviceActivationService">The service used to activate device monitoring.</param>
+    /// <param name="deviceHeartbeatService">The service used to record device heartbeats.</param>
     /// <exception cref="ArgumentNullException">
     /// Thrown when <paramref name="deviceQueries"/> or
     /// <paramref name="deviceActivationService"/> is null.
     /// </exception>
-    public DevicesController(IDeviceQueries deviceQueries, DeviceActivationService deviceActivationService)
+    public DevicesController(IDeviceQueries deviceQueries, DeviceActivationService deviceActivationService, DeviceHeartbeatService deviceHeartbeatService)
     {
         ArgumentNullException.ThrowIfNull(deviceQueries);
         ArgumentNullException.ThrowIfNull(deviceActivationService);
+        ArgumentNullException.ThrowIfNull(deviceHeartbeatService);
 
         _deviceQueries = deviceQueries;
         _deviceActivationService = deviceActivationService;
+        _deviceHeartbeatService = deviceHeartbeatService;
     }
 
     /// <summary>
@@ -134,6 +139,59 @@ public sealed class DevicesController : ControllerBase
             return Problem(
                 statusCode: StatusCodes.Status409Conflict,
                 title: "Device cannot be activated.",
+                detail: exception.Message,
+                instance: HttpContext.Request.Path);
+        }
+    }
+
+    /// <summary>
+    /// Records a heartbeat for the specified active device.
+    /// </summary>
+    /// <param name="deviceId">
+    /// The identifier of the device reporting the heartbeat.
+    /// </param>
+    /// <param name="cancellationToken">
+    /// A token used to cancel the asynchronous operation.
+    /// </param>
+    /// <returns>
+    /// The latest accepted heartbeat timestamp when the device exists;
+    /// otherwise, a <see cref="ProblemDetails"/> response.
+    /// </returns>
+    /// <response code="200">
+    /// The heartbeat was successfully processed.
+    /// </response>
+    /// <response code="404">
+    /// A device with the specified identifier was not found.
+    /// </response>
+    /// <response code="409">
+    /// The device is not active and cannot report a heartbeat.
+    /// </response>
+    [HttpPost("{deviceId:guid}/heartbeat")]
+    [ProducesResponseType<DeviceHeartbeatResult>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<DeviceHeartbeatResult>> RecordHeartbeatAsync([FromRoute] Guid deviceId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await _deviceHeartbeatService.RecordAsync(deviceId, cancellationToken);
+
+            if (result is null)
+            {
+                return Problem(
+                    statusCode: StatusCodes.Status404NotFound,
+                    title: "Device not found.",
+                    detail: $"A device with ID '{deviceId}' was not found.",
+                    instance: HttpContext.Request.Path);
+            }
+
+            return Ok(result);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Device heartbeat rejected.",
                 detail: exception.Message,
                 instance: HttpContext.Request.Path);
         }
