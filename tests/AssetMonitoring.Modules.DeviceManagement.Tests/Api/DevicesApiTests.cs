@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using AssetMonitoring.Modules.DeviceManagement.Application.Database;
 using AssetMonitoring.Modules.DeviceManagement.Domain.Devices;
+using AssetMonitoring.Modules.DeviceManagement.Tests.Support;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -11,6 +12,12 @@ namespace AssetMonitoring.Modules.DeviceManagement.Tests.Api;
 
 public sealed class DevicesApiTests
 {
+    private static readonly DateTime UtcNow =
+        new(2026, 8, 29, 12, 0, 0, DateTimeKind.Utc);
+
+    private static readonly TimeSpan OfflineThreshold =
+        TimeSpan.FromMinutes(5);
+
     [Fact]
     public async Task GetAllReturnsEveryDeviceOrderedByCode()
     {
@@ -33,6 +40,16 @@ public sealed class DevicesApiTests
             device => Assert.Equal(
                 "Registered",
                 device.GetProperty("lifecycle").GetString()));
+        Assert.All(
+            devices,
+            device => Assert.Equal(
+                "NeverConnected",
+                device.GetProperty("connectivityStatus").GetString()));
+        Assert.All(
+            devices,
+            device => Assert.Equal(
+                JsonValueKind.Null,
+                device.GetProperty("lastHeartbeatAtUtc").ValueKind));
     }
 
     [Fact]
@@ -60,6 +77,57 @@ public sealed class DevicesApiTests
             "Registered",
             device.GetProperty("lifecycle").GetString());
         Assert.Equal(JsonValueKind.Null, device.GetProperty("retiredAtUtc").ValueKind);
+        Assert.Equal(
+            JsonValueKind.Null,
+            device.GetProperty("lastHeartbeatAtUtc").ValueKind);
+        Assert.Equal(
+            "NeverConnected",
+            device.GetProperty("connectivityStatus").GetString());
+    }
+
+    [Fact]
+    public async Task GetByCodeReturnsOnlineConnectivityAfterRecentHeartbeat()
+    {
+        using var factory = new AssetMonitoringApiFactory(
+            new FixedTimeProvider(new DateTimeOffset(UtcNow)));
+        using var client = CreateClient(factory);
+        var heartbeatAtUtc = UtcNow.AddMinutes(-2);
+        await AddDeviceWithHeartbeatAsync(factory, heartbeatAtUtc);
+
+        using var response = await client.GetAsync("/api/devices/WH-001");
+        using var document = await ReadJsonAsync(response);
+        var deviceResponse = document.RootElement;
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(
+            heartbeatAtUtc,
+            deviceResponse.GetProperty("lastHeartbeatAtUtc").GetDateTime());
+        Assert.Equal(
+            "Online",
+            deviceResponse.GetProperty("connectivityStatus").GetString());
+    }
+
+    [Fact]
+    public async Task GetByCodeReturnsOfflineConnectivityAfterStaleHeartbeat()
+    {
+        using var factory = new AssetMonitoringApiFactory(
+            new FixedTimeProvider(new DateTimeOffset(UtcNow)));
+        using var client = CreateClient(factory);
+        var heartbeatAtUtc =
+            UtcNow - OfflineThreshold - TimeSpan.FromTicks(1);
+        await AddDeviceWithHeartbeatAsync(factory, heartbeatAtUtc);
+
+        using var response = await client.GetAsync("/api/devices/WH-001");
+        using var document = await ReadJsonAsync(response);
+        var deviceResponse = document.RootElement;
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(
+            heartbeatAtUtc,
+            deviceResponse.GetProperty("lastHeartbeatAtUtc").GetDateTime());
+        Assert.Equal(
+            "Offline",
+            deviceResponse.GetProperty("connectivityStatus").GetString());
     }
 
     [Fact]
@@ -149,6 +217,29 @@ public sealed class DevicesApiTests
             {
                 BaseAddress = new Uri("https://localhost")
             });
+
+    private static async Task AddDeviceWithHeartbeatAsync(
+        AssetMonitoringApiFactory factory,
+        DateTime heartbeatAtUtc)
+    {
+        var device = new Device(
+            "WH-001",
+            "Warehouse sensor",
+            "Sensor-X",
+            "R1",
+            "1.0.0",
+            "Warehouse A",
+            [DeviceCapability.Temperature],
+            UtcNow.AddHours(-1));
+        device.Activate();
+        device.RecordHeartbeat(heartbeatAtUtc);
+
+        using var scope = factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider
+            .GetRequiredService<DeviceManagementDbContext>();
+        dbContext.Devices.Add(device);
+        await dbContext.SaveChangesAsync();
+    }
 
     private static async Task SynchronizeAsync(HttpClient client)
     {

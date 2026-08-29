@@ -66,4 +66,15 @@ public sealed class DeviceResponse
     /// or null when it is not retired.
     /// </summary>
     public required DateTime? RetiredAtUtc { get; init; }
+
+    /// <summary>
+    /// Gets the UTC timestamp of the latest accepted heartbeat,
+    /// or null when the device has never connected.
+    /// </summary>
+    public required DateTime? LastHeartbeatAtUtc { get; init; }
+
+    /// <summary>
+    /// Gets the connectivity status calculated from the latest heartbeat.
+    /// </summary>
+    public required DeviceConnectivityStatus ConnectivityStatus { get; init; }
 }

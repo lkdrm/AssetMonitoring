@@ -243,6 +243,51 @@ public class Device
     }
 
     /// <summary>
+    /// Calculates the current device connectivity status from its latest
+    /// heartbeat timestamp.
+    /// </summary>
+    /// <param name="utcNow">
+    /// The current server time expressed in UTC.
+    /// </param>
+    /// <param name="offlineThreshold">
+    /// The maximum permitted time since the latest heartbeat before the device
+    /// is considered offline.
+    /// </param>
+    /// <returns>
+    /// <see cref="DeviceConnectivityStatus.NeverConnected"/> when no heartbeat
+    /// has been recorded; <see cref="DeviceConnectivityStatus.Online"/> when the
+    /// latest heartbeat is within the threshold; otherwise,
+    /// <see cref="DeviceConnectivityStatus.Offline"/>.
+    /// </returns>
+    /// <exception cref="ArgumentException">
+    /// Thrown when <paramref name="utcNow"/> is not expressed in UTC.
+    /// </exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// Thrown when <paramref name="offlineThreshold"/> is zero or negative.
+    /// </exception>
+    public DeviceConnectivityStatus GetConnectivityStatus(DateTime utcNow, TimeSpan offlineThreshold)
+    {
+        if (utcNow.Kind != DateTimeKind.Utc)
+        {
+            throw new ArgumentException("The heartbeat timestamp must be expressed in UTC.", nameof(utcNow));
+        }
+
+        if (offlineThreshold <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(offlineThreshold), "The offline threshold must be greater than zero.");
+        }
+
+        if (LastHeartbeatAtUtc is not { } lastHeartbeatAtUtc)
+        {
+            return DeviceConnectivityStatus.NeverConnected;
+        }
+
+        var onlineCutoffUtc = utcNow - offlineThreshold;
+
+        return lastHeartbeatAtUtc >= onlineCutoffUtc ? DeviceConnectivityStatus.Online : DeviceConnectivityStatus.Offline;
+    }
+
+    /// <summary>
     /// Updates the catalog-managed metadata and capabilities of the device.
     /// </summary>
     /// <param name="name">Human-readable device name.</param>
