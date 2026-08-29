@@ -14,6 +14,13 @@ namespace AssetMonitoring.Modules.DeviceManagement.Tests.Api;
 
 internal sealed class AssetMonitoringApiFactory : WebApplicationFactory<Program>
 {
+    private readonly TimeProvider? _timeProvider;
+
+    internal AssetMonitoringApiFactory(TimeProvider? timeProvider = null)
+    {
+        _timeProvider = timeProvider;
+    }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
@@ -25,7 +32,9 @@ internal sealed class AssetMonitoringApiFactory : WebApplicationFactory<Program>
                 new Dictionary<string, string?>
                 {
                     ["ConnectionStrings:DeviceManagement"] =
-                        "Server=(local);Database=AssetMonitoringTests;"
+                        "Server=(local);Database=AssetMonitoringTests;",
+                    ["DeviceManagement:Connectivity:OfflineThreshold"] =
+                        "00:05:00"
                 });
         });
 
@@ -34,6 +43,12 @@ internal sealed class AssetMonitoringApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<
                 IDbContextOptionsConfiguration<DeviceManagementDbContext>>();
             services.RemoveAll<DbConnection>();
+
+            if (_timeProvider is not null)
+            {
+                services.RemoveAll<TimeProvider>();
+                services.AddSingleton(_timeProvider);
+            }
 
             services.AddSingleton<DbConnection>(_ =>
             {

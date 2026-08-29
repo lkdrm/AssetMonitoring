@@ -1,3 +1,4 @@
+using AssetMonitoring.Modules.DeviceManagement.Application.Connectivity;
 using AssetMonitoring.Modules.DeviceManagement.Application.Infrastructure;
 using System.Text.Json.Serialization;
 
@@ -14,6 +15,11 @@ var deviceManagementConnectionString = builder.Configuration.GetConnectionString
 
 builder.Services.AddDeviceManagement(deviceManagementConnectionString);
 builder.Services.AddOpenApi();
+builder.Services.AddOptions<DeviceConnectivityOptions>()
+    .Bind(builder.Configuration
+    .GetSection(DeviceConnectivityOptions.SectionName))
+    .Validate(options => options.OfflineThreshold > TimeSpan.Zero, "Device connectivity offline threshold must be greater than zero.")
+    .ValidateOnStart();
 
 var app = builder.Build();
 
