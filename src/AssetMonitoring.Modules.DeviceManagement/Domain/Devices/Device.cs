@@ -62,6 +62,15 @@ public class Device
     public DateTime RegisteredAtUtc { get; private set; }
 
     /// <summary>
+    /// Gets the UTC timestamp of the most recently accepted heartbeat.
+    /// </summary>
+    /// <value>
+    /// The latest heartbeat timestamp, or <see langword="null"/> when the device
+    /// has never sent a heartbeat.
+    /// </value>
+    public DateTime? LastHeartbeatAtUtc { get; private set; }
+
+    /// <summary>
     /// Gets the current business lifecycle of the device.
     /// Lifecycle is independent of its online or offline connection status.
     /// </summary>
@@ -192,6 +201,45 @@ public class Device
         }
 
         throw new InvalidOperationException("A retired device must be restored before activation.");
+    }
+
+    /// <summary>
+    /// Records a heartbeat for an active device.
+    /// </summary>
+    /// <param name="heartbeatAtUtc">
+    /// The UTC timestamp at which the heartbeat was received.
+    /// </param>
+    /// <returns>
+    /// <see langword="true"/> when the heartbeat timestamp was updated;
+    /// otherwise, <see langword="false"/> when the timestamp is equal to or
+    /// older than the latest recorded heartbeat.
+    /// </returns>
+    /// <exception cref="ArgumentException">
+    /// Thrown when <paramref name="heartbeatAtUtc"/> is not expressed in UTC.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the device is not active.
+    /// </exception>
+    public bool RecordHeartbeat(DateTime heartbeatAtUtc)
+    {
+        if (heartbeatAtUtc.Kind != DateTimeKind.Utc)
+        {
+            throw new ArgumentException("The heartbeat timestamp must be expressed in UTC.", nameof(heartbeatAtUtc));
+        }
+
+        if (Lifecycle is DeviceLifecycle.Registered or DeviceLifecycle.Retired)
+        {
+            throw new InvalidOperationException("Only an active device can record a heartbeat.");
+        }
+
+        if (LastHeartbeatAtUtc is { } lastHeartbeatAtUtc && heartbeatAtUtc <= lastHeartbeatAtUtc)
+        {
+            return false;
+        }
+
+        LastHeartbeatAtUtc = heartbeatAtUtc;
+
+        return true;
     }
 
     /// <summary>

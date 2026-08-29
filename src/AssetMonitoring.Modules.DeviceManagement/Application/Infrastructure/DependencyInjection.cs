@@ -2,6 +2,7 @@
 using AssetMonitoring.Modules.DeviceManagement.Application.Database;
 using AssetMonitoring.Modules.DeviceManagement.Application.DeviceCatalog;
 using AssetMonitoring.Modules.DeviceManagement.Application.DeviceCatalog.Validation;
+using AssetMonitoring.Modules.DeviceManagement.Application.Heartbeat;
 using AssetMonitoring.Modules.DeviceManagement.Application.Interfaces;
 using AssetMonitoring.Modules.DeviceManagement.Application.Repository;
 using AssetMonitoring.Modules.DeviceManagement.Application.Synchronization;
@@ -32,6 +33,7 @@ public static class DependencyInjection
         services.AddScoped<DeviceCatalogSynchronizationService>();
         services.AddScoped<IDeviceQueries, DeviceQueries>();
         services.AddScoped<DeviceActivationService>();
+        services.AddScoped<DeviceHeartbeatService>();
 
         services.AddSingleton<IDeviceCatalogReader, JsonDeviceCatalogReader>();
         services.AddSingleton<DeviceCatalogValidator>();

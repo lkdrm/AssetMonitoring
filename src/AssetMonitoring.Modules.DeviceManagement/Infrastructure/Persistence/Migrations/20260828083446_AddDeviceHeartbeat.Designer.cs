@@ -4,6 +4,7 @@ using AssetMonitoring.Modules.DeviceManagement.Application.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AssetMonitoring.Modules.DeviceManagement.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(DeviceManagementDbContext))]
-    partial class DeviceManagementDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260828083446_AddDeviceHeartbeat")]
+    partial class AddDeviceHeartbeat
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
