@@ -5,4 +5,5 @@
   <Project Path="src/AssetMonitoring.Modules.Notifications/AssetMonitoring.Modules.Notifications.csproj" Id="51b66b22-3172-450f-a59b-fa7b67d05616" />
   <Project Path="src/AssetMonitoring.Modules.Telemetry/AssetMonitoring.Modules.Telemetry.csproj" Id="486f324b-1431-4de6-a57f-f285f791b89c" />
   <Project Path="tests/AssetMonitoring.Modules.DeviceManagement.Tests/AssetMonitoring.Modules.DeviceManagement.Tests.csproj" Id="e753c0d2-500e-4ff4-9688-2e281fcac36c" />
+  <Project Path="tests/AssetMonitoring.Modules.Telemetry.Tests/AssetMonitoring.Modules.Telemetry.Tests.csproj" Id="16234e18-9c76-418c-9b04-4dc242f3bdbe" />
 </Solution>

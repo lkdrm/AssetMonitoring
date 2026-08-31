@@ -1,5 +1,6 @@
 using AssetMonitoring.Modules.DeviceManagement.Application.Connectivity;
 using AssetMonitoring.Modules.DeviceManagement.Application.Infrastructure;
+using AssetMonitoring.Modules.Telemetry.Infrastructure;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -12,8 +13,11 @@ builder.Services.AddControllers().AddJsonOptions(options =>
 
 var deviceManagementConnectionString = builder.Configuration.GetConnectionString("DeviceManagement") ?? throw new InvalidOperationException(
         "The DeviceManagement database connection string is missing.");
+var telemetryConnectionString = builder.Configuration.GetConnectionString("Telemetry") ?? throw new InvalidOperationException(
+        "The Telemetry database connection string is missing.");
 
 builder.Services.AddDeviceManagement(deviceManagementConnectionString);
+builder.Services.AddTelemetry(telemetryConnectionString);
 builder.Services.AddOpenApi();
 builder.Services.AddOptions<DeviceConnectivityOptions>()
     .Bind(builder.Configuration
