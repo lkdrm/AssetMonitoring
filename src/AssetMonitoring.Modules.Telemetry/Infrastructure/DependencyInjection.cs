@@ -1,6 +1,7 @@
 ﻿using AssetMonitoring.Modules.Telemetry.Application.Interfaces;
 using AssetMonitoring.Modules.Telemetry.Application.Service;
 using AssetMonitoring.Modules.Telemetry.Database;
+using AssetMonitoring.Modules.Telemetry.Infrastructure.Persistence.Queries;
 using AssetMonitoring.Modules.Telemetry.Infrastructure.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -35,6 +36,7 @@ public static class DependencyInjection
 
         services.AddScoped<ITelemetryMeasurementRepository, TelemetryMeasurementRepository>();
         services.AddScoped<TelemetryRecordingService>();
+        services.AddScoped<ITelemetryQueries, TelemetryQueries>();
 
         return services;
     }
