@@ -5,7 +5,7 @@
 ![EF Core](https://img.shields.io/badge/EF%20Core-10.0-512BD4)
 ![SQL Server](https://img.shields.io/badge/SQL%20Server-persistence-CC2927)
 ![Device Catalog](https://img.shields.io/badge/device%20catalog-complete-success)
-![Tests](https://img.shields.io/badge/tests-198%20passing-success)
+![Tests](https://img.shields.io/badge/tests-252%20passing-success)
 
 > [!WARNING]
 > This project is under active development. Its public API, persistence model,
@@ -247,20 +247,35 @@ The synchronization result reports:
 - Cancellation propagated through controller, service, repository, and EF Core
 - Numeric and state measurements persisted through the same endpoint
 
+### Telemetry queries
+
+- Read-only telemetry queries using `AsNoTracking`
+- Filtered telemetry history by device, metric, and UTC time range
+- Pagination with page-size validation from `1` through `200`
+- Total count calculated before pagination
+- Deterministic ordering by measurement time and measurement identifier
+- Latest measurement lookup by device and required metric
+- Empty telemetry history returned as an empty collection
+- Missing latest measurement returned as `404 Not Found`
+- Query validation returned through Problem Details responses
+- Cancellation propagated through the API and EF Core queries
+
 ### API
 
 Implemented endpoints:
 
 | Method | Route | Purpose | Status |
 |---|---|---|:---:|
-| `GET` | `/api/device-catalog/validation` | Read and validate the configured catalog | ✅ |
-| `POST` | `/api/device-catalog/synchronize` | Synchronize the catalog with SQL Server | ✅ |
 | `GET` | `/api/devices` | Query devices from SQL Server | ✅ |
 | `GET` | `/api/devices/{code}` | Query a specific device by code | ✅ |
+| `GET` | `/api/devices/{deviceId}/telemetry` | Query filtered and paginated telemetry history | ✅ |
+| `GET` | `/api/devices/{deviceId}/telemetry/latest` | Query the latest measurement for a metric | ✅ |
+| `GET` | `/api/device-catalog/validation` | Read and validate the configured catalog | ✅ |
+| `GET` | `/api/alerts` | Query generated alerts | ⬜ |
 | `POST` | `/api/devices/{deviceId}/activate` | Activate device monitoring | ✅ |
 | `POST` | `/api/devices/{deviceId}/heartbeat` | Receive a device heartbeat | ✅ |
 | `POST` | `/api/devices/{deviceId}/telemetry` | Receive device telemetry | ✅ |
-| `GET` | `/api/alerts` | Query generated alerts | ⬜ |
+| `POST` | `/api/device-catalog/synchronize` | Synchronize the catalog with SQL Server | ✅ |
 
 Catalog validation failures return `400 Bad Request`.
 
@@ -345,8 +360,8 @@ Telemetry ingestion has also been manually verified against SQL Server:
 
 ## Automated verification
 
-The solution is protected by 198 automated xUnit test cases: 134 for Device
-Management and 64 for Telemetry. Coverage includes:
+The solution is protected by 252 automated xUnit test cases: 134 for Device
+Management and 118 for Telemetry.
 
 - domain invariants and lifecycle behavior;
 - catalog validation and JSON loading;
@@ -513,8 +528,8 @@ Manual verification
 Automated tests
 ```
 
-The current focus is querying Telemetry history and latest values after the
-completed ingestion slice is merged.
+The Telemetry ingestion and read-model slices are complete. The current focus
+is the Device Simulator vertical slice.
 
 ## Roadmap
 
@@ -529,7 +544,7 @@ completed ingestion slice is merged.
 | ✅ | Synchronization API | Catalog synchronization through HTTP POST |
 | ✅ | Manual end-to-end verification | JSON → API → EF Core → SQL Server |
 | ✅ | Device Query API | List devices and retrieve a device by code |
-| ✅ | Automated tests | 198 domain, application, persistence, DI, and API test cases |
+| ✅ | Automated tests | 252 domain, application, persistence, DI, controller, and API test cases |
 | ✅ | Continuous integration | Restore, Release build, tests, and generated PR verification report |
 | ✅ | Device activation | Explicit and idempotent monitoring activation |
 | ✅ | Device heartbeat | Server-timestamped heartbeat recording for active devices |
@@ -537,6 +552,7 @@ completed ingestion slice is merged.
 | ⬜ | Structured logging | Synchronization and lifecycle events |
 | ✅ | Telemetry domain | Numeric and state telemetry measurements |
 | ✅ | Telemetry ingestion API | Idempotent device telemetry endpoint |
+| ✅ | Telemetry read models | Filtered history, pagination, and latest-value queries |
 | ⬜ | Device simulator | Ten asynchronous warehouse devices |
 | ✅ | Device connectivity | Calculated never connected, online, and offline states |
 | ⬜ | Alerting | Threshold, state, and heartbeat rules |
@@ -549,14 +565,9 @@ completed ingestion slice is merged.
 
 ## Next milestone
 
-Implement Telemetry read models:
-
-- query measurement history by device and metric;
-- return the latest measurement by maximum `MeasuredAtUtc`;
-- define deterministic ordering for equal timestamps;
-- add pagination boundaries for growing time-series history;
-- expose focused read-only API endpoints with `AsNoTracking`;
-- add query and API integration tests.
+The Telemetry ingestion and read-model slices are complete. The next planned
+vertical slice is the Device Simulator, which will generate realistic device
+heartbeats and telemetry measurements.
 
 ## Technology direction
 
@@ -587,11 +598,12 @@ Planned technologies where they provide real value:
 
 ## Project status
 
-The project is not production-ready yet.
+> [!WARNING]
+> The project is not production-ready yet.
 
-The Device Management and Telemetry ingestion vertical slices are operational
-and covered by automated tests. The API manages the device catalog, lifecycle,
-heartbeat, and connectivity projection, then accepts numeric and state telemetry
-through an idempotent endpoint and persists measurement history in SQL Server.
+The Device Management and Telemetry vertical slices are operational and covered
+by automated tests. The API manages the device catalog, lifecycle, heartbeat,
+and connectivity projection. It accepts idempotent telemetry measurements and
+provides filtered history, pagination, and latest-value queries.
 
-The next goal is implementing Telemetry history and latest-value queries.
+The next goal is implementing the Device Simulator.

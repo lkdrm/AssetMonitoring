@@ -1,6 +1,18 @@
-@AssetMonitoringApi_HostAddress = https://localhost:7056
+@host = https://localhost:7056
+@deviceId = d5328b8a-101b-4f99-a1fd-b0bd387a9e59
 
-POST {{AssetMonitoringApi_HostAddress}}/api/device-catalog/synchronize
+### Latest temperature — expected 200
+GET {{host}}/api/devices/{{deviceId}}/telemetry/latest?metric=Temperature
 Accept: application/json
 
-###
+### Metric without measurements — expected 404
+GET {{host}}/api/devices/{{deviceId}}/telemetry/latest?metric=DoorState
+Accept: application/json
+
+### Missing metric — expected 400
+GET {{host}}/api/devices/{{deviceId}}/telemetry/latest
+Accept: application/json
+
+### Unsupported metric — expected automatic 400
+GET {{host}}/api/devices/{{deviceId}}/telemetry/latest?metric=999
+Accept: application/json
