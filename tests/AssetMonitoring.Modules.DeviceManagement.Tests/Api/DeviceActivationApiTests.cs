@@ -86,8 +86,7 @@ public sealed class DeviceActivationApiTests
         {
             var dbContext = scope.ServiceProvider
                 .GetRequiredService<DeviceManagementDbContext>();
-            var device = await dbContext.Devices.SingleAsync(
-                item => item.Id == deviceId);
+            var device = await dbContext.Devices.SingleAsync(item => item.Id == deviceId, cancellationToken: TestContext.Current.CancellationToken);
             device.Retire(
                 new DateTime(
                     2026,
@@ -97,7 +96,7 @@ public sealed class DeviceActivationApiTests
                     0,
                     0,
                     DateTimeKind.Utc));
-            await dbContext.SaveChangesAsync();
+            await dbContext.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         using var response = await ActivateAsync(client, deviceId);

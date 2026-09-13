@@ -24,8 +24,7 @@ public sealed class TelemetryHistoryApiTests
         using var factory = new TelemetryApiFactory();
         using var client = CreateClient(factory);
 
-        using var response = await client.GetAsync(
-            $"/api/devices/{DeviceId}/telemetry");
+        using var response = await client.GetAsync($"/api/devices/{DeviceId}/telemetry", TestContext.Current.CancellationToken);
         using var document = await ReadJsonAsync(response);
         var result = document.RootElement;
 
@@ -82,10 +81,9 @@ public sealed class TelemetryHistoryApiTests
         var toUtc = Uri.EscapeDataString(
             MeasuredAtUtc.AddMinutes(2).ToString("O"));
 
-        using var response = await client.GetAsync(
-            $"/api/devices/{DeviceId}/telemetry" +
+        using var response = await client.GetAsync($"/api/devices/{DeviceId}/telemetry" +
             $"?metric=Temperature&fromUtc={fromUtc}&toUtc={toUtc}" +
-            "&page=1&pageSize=2");
+            "&page=1&pageSize=2", TestContext.Current.CancellationToken);
         using var document = await ReadJsonAsync(response);
         var result = document.RootElement;
         var items = result.GetProperty("items").EnumerateArray().ToArray();
@@ -109,8 +107,7 @@ public sealed class TelemetryHistoryApiTests
         using var factory = new TelemetryApiFactory();
         using var client = CreateClient(factory);
 
-        using var response = await client.GetAsync(
-            $"/api/devices/{DeviceId}/telemetry?page=0");
+        using var response = await client.GetAsync($"/api/devices/{DeviceId}/telemetry?page=0", TestContext.Current.CancellationToken);
         using var document = await ReadJsonAsync(response);
         var problem = document.RootElement;
 
@@ -161,7 +158,7 @@ public sealed class TelemetryHistoryApiTests
         var dbContext = scope.ServiceProvider
             .GetRequiredService<TelemetryDbContext>();
         dbContext.Measurements.AddRange(measurements);
-        await dbContext.SaveChangesAsync();
+        await dbContext.SaveChangesAsync(TestContext.Current.CancellationToken);
     }
 
     private static async Task<JsonDocument> ReadJsonAsync(

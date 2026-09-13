@@ -1,0 +1,22 @@
+{
+  "name": "WarehouseHighTemperature",
+  "seed": 42,
+  "scenarios": [
+    {
+      "type": "HighTemperature",
+      "name": "GradualHighTemperature",
+      "startsAfter": "00:01:00",
+      "duration": "00:03:00",
+      "target": {
+        "mode": "RandomCompatible",
+        "count": 1
+      },
+      "autoRecover": true,
+      "recoveryDuration": "00:02:00",
+      "abnormalMinimum": 30,
+      "abnormalMaximum": 35,
+      "maximumRisePerMeasurement": 2,
+      "maximumRecoveryPerMeasurement": 2
+    }
+  ]
+}

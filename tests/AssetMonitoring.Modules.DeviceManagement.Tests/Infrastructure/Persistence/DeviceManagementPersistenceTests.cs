@@ -76,13 +76,13 @@ public sealed class DeviceManagementPersistenceTests
         await using (var writeContext = database.CreateDbContext())
         {
             writeContext.Devices.Add(device);
-            await writeContext.SaveChangesAsync();
+            await writeContext.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         await using var readContext = database.CreateDbContext();
         var loadedDevice = await readContext.Devices
             .AsNoTracking()
-            .SingleAsync();
+            .SingleAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(device.Id, loadedDevice.Id);
         Assert.Equal(device.Code, loadedDevice.Code);
@@ -118,12 +118,12 @@ public sealed class DeviceManagementPersistenceTests
             DeviceCatalogTestData.RegisteredAtUtc);
 
         context.Devices.Add(firstDevice);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         context.ChangeTracker.Clear();
         context.Devices.Add(secondDevice);
 
         await Assert.ThrowsAsync<DbUpdateException>(() =>
-            context.SaveChangesAsync());
+            context.SaveChangesAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -138,13 +138,13 @@ public sealed class DeviceManagementPersistenceTests
         await using (var writeContext = database.CreateDbContext())
         {
             writeContext.Devices.Add(device);
-            await writeContext.SaveChangesAsync();
+            await writeContext.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         await using var readContext = database.CreateDbContext();
         var loadedDevice = await readContext.Devices
             .AsNoTracking()
-            .SingleAsync();
+            .SingleAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(DeviceLifecycle.Retired, loadedDevice.Lifecycle);
         Assert.Equal(retiredAtUtc, loadedDevice.RetiredAtUtc);
@@ -165,13 +165,13 @@ public sealed class DeviceManagementPersistenceTests
         await using (var writeContext = database.CreateDbContext())
         {
             writeContext.Devices.Add(device);
-            await writeContext.SaveChangesAsync();
+            await writeContext.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         await using var readContext = database.CreateDbContext();
         var loadedDevice = await readContext.Devices
             .AsNoTracking()
-            .SingleAsync();
+            .SingleAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(DeviceLifecycle.Active, loadedDevice.Lifecycle);
         Assert.Equal(heartbeatAtUtc, loadedDevice.LastHeartbeatAtUtc);
@@ -188,12 +188,12 @@ public sealed class DeviceManagementPersistenceTests
         await using (var createContext = database.CreateDbContext())
         {
             createContext.Devices.Add(device);
-            await createContext.SaveChangesAsync();
+            await createContext.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         await using (var updateContext = database.CreateDbContext())
         {
-            var trackedDevice = await updateContext.Devices.SingleAsync();
+            var trackedDevice = await updateContext.Devices.SingleAsync(TestContext.Current.CancellationToken);
             trackedDevice.UpdateMetadata(
                 trackedDevice.Name,
                 trackedDevice.HardwareModel,
@@ -201,13 +201,13 @@ public sealed class DeviceManagementPersistenceTests
                 trackedDevice.FirmwareVersion,
                 trackedDevice.Location,
                 [DeviceCapability.DoorState]);
-            await updateContext.SaveChangesAsync();
+            await updateContext.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         await using var readContext = database.CreateDbContext();
         var loadedDevice = await readContext.Devices
             .AsNoTracking()
-            .SingleAsync();
+            .SingleAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(
             DeviceCapability.DoorState,

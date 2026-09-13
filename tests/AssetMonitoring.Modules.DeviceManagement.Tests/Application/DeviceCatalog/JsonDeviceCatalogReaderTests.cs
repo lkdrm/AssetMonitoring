@@ -16,7 +16,7 @@ public sealed class JsonDeviceCatalogReaderTests
         string? path)
     {
         await Assert.ThrowsAnyAsync<ArgumentException>(() =>
-            _reader.ReadAsync(path!));
+            _reader.ReadAsync(path!, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -41,7 +41,7 @@ public sealed class JsonDeviceCatalogReaderTests
 
         try
         {
-            var document = await _reader.ReadAsync(path);
+            var document = await _reader.ReadAsync(path, TestContext.Current.CancellationToken);
 
             var device = Assert.Single(document.Devices);
             Assert.Equal("WH-001", device.Code);
@@ -82,7 +82,7 @@ public sealed class JsonDeviceCatalogReaderTests
         try
         {
             await Assert.ThrowsAsync<JsonException>(() =>
-                _reader.ReadAsync(path));
+                _reader.ReadAsync(path, TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -101,7 +101,7 @@ public sealed class JsonDeviceCatalogReaderTests
         try
         {
             await Assert.ThrowsAsync<JsonException>(() =>
-                _reader.ReadAsync(path));
+                _reader.ReadAsync(path, TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -117,7 +117,7 @@ public sealed class JsonDeviceCatalogReaderTests
             $"missing-{Guid.NewGuid():N}.json");
 
         await Assert.ThrowsAsync<FileNotFoundException>(() =>
-            _reader.ReadAsync(path));
+            _reader.ReadAsync(path, TestContext.Current.CancellationToken));
     }
 
     [Fact]

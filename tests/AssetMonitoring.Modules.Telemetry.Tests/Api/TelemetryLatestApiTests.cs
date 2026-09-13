@@ -49,9 +49,8 @@ public sealed class TelemetryLatestApiTests
         await SaveAsync(factory, older, expected, otherMetric, otherDevice);
         using var client = CreateClient(factory);
 
-        using var response = await client.GetAsync(
-            $"/api/devices/{DeviceId}/telemetry/latest" +
-            "?metric=Temperature");
+        using var response = await client.GetAsync($"/api/devices/{DeviceId}/telemetry/latest" +
+            "?metric=Temperature", TestContext.Current.CancellationToken);
         using var document = await ReadJsonAsync(response);
         var result = document.RootElement;
 
@@ -72,9 +71,8 @@ public sealed class TelemetryLatestApiTests
         using var factory = new TelemetryApiFactory();
         using var client = CreateClient(factory);
 
-        using var response = await client.GetAsync(
-            $"/api/devices/{DeviceId}/telemetry/latest" +
-            "?metric=DoorState");
+        using var response = await client.GetAsync($"/api/devices/{DeviceId}/telemetry/latest" +
+            "?metric=DoorState", TestContext.Current.CancellationToken);
         using var document = await ReadJsonAsync(response);
         var problem = document.RootElement;
 
@@ -94,8 +92,7 @@ public sealed class TelemetryLatestApiTests
         using var factory = new TelemetryApiFactory();
         using var client = CreateClient(factory);
 
-        using var response = await client.GetAsync(
-            $"/api/devices/{DeviceId}/telemetry/latest");
+        using var response = await client.GetAsync($"/api/devices/{DeviceId}/telemetry/latest", TestContext.Current.CancellationToken);
         using var document = await ReadJsonAsync(response);
         var problem = document.RootElement;
 
@@ -112,8 +109,7 @@ public sealed class TelemetryLatestApiTests
         using var factory = new TelemetryApiFactory();
         using var client = CreateClient(factory);
 
-        using var response = await client.GetAsync(
-            $"/api/devices/{DeviceId}/telemetry/latest?metric=999");
+        using var response = await client.GetAsync($"/api/devices/{DeviceId}/telemetry/latest?metric=999", TestContext.Current.CancellationToken);
         using var document = await ReadJsonAsync(response);
         var problem = document.RootElement;
 
@@ -163,7 +159,7 @@ public sealed class TelemetryLatestApiTests
         var dbContext = scope.ServiceProvider
             .GetRequiredService<TelemetryDbContext>();
         dbContext.Measurements.AddRange(measurements);
-        await dbContext.SaveChangesAsync();
+        await dbContext.SaveChangesAsync(TestContext.Current.CancellationToken);
     }
 
     private static async Task<JsonDocument> ReadJsonAsync(

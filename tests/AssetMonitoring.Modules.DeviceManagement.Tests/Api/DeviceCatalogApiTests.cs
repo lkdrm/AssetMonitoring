@@ -13,7 +13,7 @@ public sealed class DeviceCatalogApiTests
         using var factory = new AssetMonitoringApiFactory();
         using var client = CreateClient(factory);
 
-        using var response = await client.GetAsync("/api/device-catalog/validation");
+        using var response = await client.GetAsync("/api/device-catalog/validation", TestContext.Current.CancellationToken);
         using var document = await ReadJsonAsync(response);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);

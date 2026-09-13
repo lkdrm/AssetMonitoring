@@ -1,11 +1,10 @@
-using System.Net;
-using System.Text;
-using System.Text.Json;
 using AssetMonitoring.Modules.DeviceManagement.Application.Database;
-using AssetMonitoring.Modules.DeviceManagement.Domain.Devices;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using System.Net;
+using System.Text;
+using System.Text.Json;
 
 namespace AssetMonitoring.Modules.DeviceManagement.Tests.Api;
 
@@ -38,7 +37,7 @@ public sealed class DeviceHeartbeatApiTests
             .AsNoTracking()
             .Where(device => device.Id == deviceId)
             .Select(device => device.LastHeartbeatAtUtc)
-            .SingleAsync();
+            .SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(lastHeartbeatAtUtc, persistedHeartbeatAtUtc);
         Assert.Equal(DateTimeKind.Utc, persistedHeartbeatAtUtc?.Kind);
@@ -93,8 +92,7 @@ public sealed class DeviceHeartbeatApiTests
         {
             var dbContext = scope.ServiceProvider
                 .GetRequiredService<DeviceManagementDbContext>();
-            var device = await dbContext.Devices.SingleAsync(
-                item => item.Id == deviceId);
+            var device = await dbContext.Devices.SingleAsync(item => item.Id == deviceId, cancellationToken: TestContext.Current.CancellationToken);
             device.Retire(
                 new DateTime(
                     2026,
@@ -104,7 +102,7 @@ public sealed class DeviceHeartbeatApiTests
                     0,
                     0,
                     DateTimeKind.Utc));
-            await dbContext.SaveChangesAsync();
+            await dbContext.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         using var response = await RecordHeartbeatAsync(client, deviceId);

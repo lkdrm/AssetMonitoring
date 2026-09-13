@@ -98,7 +98,7 @@ public sealed class TelemetryPersistenceTests
         await using var readContext = database.CreateDbContext();
         var loadedMeasurement = await readContext.Measurements
             .AsNoTracking()
-            .SingleAsync();
+            .SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(measurement.Id, loadedMeasurement.Id);
         Assert.Equal(DeviceId, loadedMeasurement.DeviceId);
@@ -125,7 +125,7 @@ public sealed class TelemetryPersistenceTests
         await using var readContext = database.CreateDbContext();
         var loadedMeasurement = await readContext.Measurements
             .AsNoTracking()
-            .SingleAsync();
+            .SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(TelemetryMetric.LightState, loadedMeasurement.Metric);
         Assert.Null(loadedMeasurement.NumericValue);
@@ -158,7 +158,7 @@ public sealed class TelemetryPersistenceTests
         duplicateContext.Measurements.Add(duplicateMeasurement);
 
         await Assert.ThrowsAsync<DbUpdateException>(() =>
-            duplicateContext.SaveChangesAsync());
+            duplicateContext.SaveChangesAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -176,7 +176,7 @@ public sealed class TelemetryPersistenceTests
                 VALUES
                     ({Guid.NewGuid()}, {DeviceId}, {"DoorState"},
                      {1.0}, {true}, {MeasuredAtUtc})
-                """));
+                """, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -194,7 +194,7 @@ public sealed class TelemetryPersistenceTests
                 VALUES
                     ({Guid.NewGuid()}, {DeviceId}, {"Humidity"},
                      {100.1}, NULL, {MeasuredAtUtc})
-                """));
+                """, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -218,7 +218,7 @@ public sealed class TelemetryPersistenceTests
         {
             writeContext.Measurements.Add(newerMeasurement);
             writeContext.Measurements.Add(olderMeasurement);
-            await writeContext.SaveChangesAsync();
+            await writeContext.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         await using var readContext = database.CreateDbContext();
@@ -226,7 +226,7 @@ public sealed class TelemetryPersistenceTests
             .AsNoTracking()
             .OrderByDescending(measurement => measurement.MeasuredAtUtc)
             .Select(measurement => measurement.Id)
-            .ToListAsync();
+            .ToListAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(
             new[] { newerMeasurement.Id, olderMeasurement.Id },
@@ -239,6 +239,6 @@ public sealed class TelemetryPersistenceTests
     {
         await using var context = database.CreateDbContext();
         context.Measurements.Add(measurement);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
     }
 }

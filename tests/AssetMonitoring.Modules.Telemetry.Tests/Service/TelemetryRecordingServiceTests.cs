@@ -29,7 +29,7 @@ public sealed class TelemetryRecordingServiceTests
         var service = CreateService();
 
         await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            service.RecordAsync(null!));
+            service.RecordAsync(null!, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -64,7 +64,7 @@ public sealed class TelemetryRecordingServiceTests
         var service = CreateService(repository);
         var request = CreateNumericRequest(metric);
 
-        var result = await service.RecordAsync(request);
+        var result = await service.RecordAsync(request, TestContext.Current.CancellationToken);
 
         var measurement = Assert.Single(repository.AddedMeasurements);
         Assert.True(result.Recorded);
@@ -89,7 +89,7 @@ public sealed class TelemetryRecordingServiceTests
         var service = CreateService(repository);
         var request = CreateStateRequest(metric, stateValue);
 
-        var result = await service.RecordAsync(request);
+        var result = await service.RecordAsync(request, TestContext.Current.CancellationToken);
 
         var measurement = Assert.Single(repository.AddedMeasurements);
         Assert.True(result.Recorded);
@@ -117,7 +117,7 @@ public sealed class TelemetryRecordingServiceTests
             MeasuredAtUtc);
 
         await Assert.ThrowsAsync<ArgumentException>(() =>
-            service.RecordAsync(request));
+            service.RecordAsync(request, TestContext.Current.CancellationToken));
 
         Assert.Empty(repository.AddedMeasurements);
         Assert.Equal(0, repository.SaveChangesCallCount);
@@ -140,7 +140,7 @@ public sealed class TelemetryRecordingServiceTests
             MeasuredAtUtc);
 
         await Assert.ThrowsAsync<ArgumentException>(() =>
-            service.RecordAsync(request));
+            service.RecordAsync(request, TestContext.Current.CancellationToken));
 
         Assert.Empty(repository.AddedMeasurements);
         Assert.Equal(0, repository.SaveChangesCallCount);
@@ -163,7 +163,7 @@ public sealed class TelemetryRecordingServiceTests
             MeasuredAtUtc);
 
         await Assert.ThrowsAsync<ArgumentException>(() =>
-            service.RecordAsync(request));
+            service.RecordAsync(request, TestContext.Current.CancellationToken));
 
         Assert.Empty(repository.AddedMeasurements);
         Assert.Equal(0, repository.SaveChangesCallCount);
@@ -186,7 +186,7 @@ public sealed class TelemetryRecordingServiceTests
             MeasuredAtUtc);
 
         await Assert.ThrowsAsync<ArgumentException>(() =>
-            service.RecordAsync(request));
+            service.RecordAsync(request, TestContext.Current.CancellationToken));
 
         Assert.Empty(repository.AddedMeasurements);
         Assert.Equal(0, repository.SaveChangesCallCount);
@@ -206,7 +206,7 @@ public sealed class TelemetryRecordingServiceTests
             MeasuredAtUtc);
 
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
-            service.RecordAsync(request));
+            service.RecordAsync(request, TestContext.Current.CancellationToken));
 
         Assert.Empty(repository.AddedMeasurements);
         Assert.Equal(0, repository.SaveChangesCallCount);
@@ -238,8 +238,8 @@ public sealed class TelemetryRecordingServiceTests
         var service = CreateService(repository);
         var request = CreateNumericRequest();
 
-        var firstResult = await service.RecordAsync(request);
-        var secondResult = await service.RecordAsync(request);
+        var firstResult = await service.RecordAsync(request, TestContext.Current.CancellationToken);
+        var secondResult = await service.RecordAsync(request, TestContext.Current.CancellationToken);
 
         Assert.True(firstResult.Recorded);
         Assert.False(secondResult.Recorded);

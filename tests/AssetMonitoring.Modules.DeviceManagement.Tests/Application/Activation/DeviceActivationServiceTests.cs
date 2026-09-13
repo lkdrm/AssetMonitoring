@@ -19,7 +19,7 @@ public sealed class DeviceActivationServiceTests
         var repository = new FakeDeviceRepository();
         var service = new DeviceActivationService(repository);
 
-        var result = await service.ActivateAsync(Guid.NewGuid());
+        var result = await service.ActivateAsync(Guid.NewGuid(), TestContext.Current.CancellationToken);
 
         Assert.Null(result);
         Assert.Equal(1, repository.GetByIdCallCount);
@@ -33,7 +33,7 @@ public sealed class DeviceActivationServiceTests
         var repository = new FakeDeviceRepository([device]);
         var service = new DeviceActivationService(repository);
 
-        var result = await service.ActivateAsync(device.Id);
+        var result = await service.ActivateAsync(device.Id, TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
         Assert.Equal(device.Id, result.DeviceId);
@@ -51,7 +51,7 @@ public sealed class DeviceActivationServiceTests
         var repository = new FakeDeviceRepository([device]);
         var service = new DeviceActivationService(repository);
 
-        var result = await service.ActivateAsync(device.Id);
+        var result = await service.ActivateAsync(device.Id, TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
         Assert.Equal(device.Id, result.DeviceId);
@@ -70,7 +70,7 @@ public sealed class DeviceActivationServiceTests
         var service = new DeviceActivationService(repository);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.ActivateAsync(device.Id));
+            service.ActivateAsync(device.Id, TestContext.Current.CancellationToken));
 
         Assert.Equal(DeviceLifecycle.Retired, device.Lifecycle);
         Assert.Equal(retiredAtUtc, device.RetiredAtUtc);

@@ -39,7 +39,7 @@ public sealed class TelemetryApiTests
             .GetRequiredService<TelemetryDbContext>();
         var measurement = await dbContext.Measurements
             .AsNoTracking()
-            .SingleAsync();
+            .SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(MeasurementId, measurement.Id);
         Assert.Equal(DeviceId, measurement.DeviceId);
@@ -68,7 +68,7 @@ public sealed class TelemetryApiTests
         using var scope = factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider
             .GetRequiredService<TelemetryDbContext>();
-        Assert.Equal(1, await dbContext.Measurements.CountAsync());
+        Assert.Equal(1, await dbContext.Measurements.CountAsync(cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -85,9 +85,7 @@ public sealed class TelemetryApiTests
             measuredAtUtc = MeasuredAtUtc
         };
 
-        using var response = await client.PostAsJsonAsync(
-            $"/api/devices/{DeviceId}/telemetry",
-            body);
+        using var response = await client.PostAsJsonAsync($"/api/devices/{DeviceId}/telemetry", body, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 
@@ -96,7 +94,7 @@ public sealed class TelemetryApiTests
             .GetRequiredService<TelemetryDbContext>();
         var measurement = await dbContext.Measurements
             .AsNoTracking()
-            .SingleAsync();
+            .SingleAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(TelemetryMetric.LightState, measurement.Metric);
         Assert.Null(measurement.NumericValue);
@@ -117,9 +115,7 @@ public sealed class TelemetryApiTests
             measuredAtUtc = MeasuredAtUtc
         };
 
-        using var response = await client.PostAsJsonAsync(
-            $"/api/devices/{DeviceId}/telemetry",
-            body);
+        using var response = await client.PostAsJsonAsync($"/api/devices/{DeviceId}/telemetry", body, cancellationToken: TestContext.Current.CancellationToken);
         using var document = await ReadJsonAsync(response);
         var problem = document.RootElement;
 

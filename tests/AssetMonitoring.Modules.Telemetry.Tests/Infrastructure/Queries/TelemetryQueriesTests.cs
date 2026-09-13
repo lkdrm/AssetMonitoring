@@ -31,7 +31,7 @@ public sealed class TelemetryQueriesTests
         var queries = new TelemetryQueries(context);
 
         await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            queries.GetHistoryAsync(null!));
+            queries.GetHistoryAsync(null!, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -43,7 +43,7 @@ public sealed class TelemetryQueriesTests
         var query = new TelemetryHistoryQuery(Guid.Empty);
 
         var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
-            queries.GetHistoryAsync(query));
+            queries.GetHistoryAsync(query, TestContext.Current.CancellationToken));
 
         Assert.Equal(nameof(query.DeviceId), exception.ParamName);
     }
@@ -59,7 +59,7 @@ public sealed class TelemetryQueriesTests
             (TelemetryMetric)999);
 
         var exception = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
-            () => queries.GetHistoryAsync(query));
+            () => queries.GetHistoryAsync(query, TestContext.Current.CancellationToken));
 
         Assert.Equal(nameof(query.Metric), exception.ParamName);
     }
@@ -77,7 +77,7 @@ public sealed class TelemetryQueriesTests
         var query = new TelemetryHistoryQuery(DeviceId, FromUtc: from);
 
         var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
-            queries.GetHistoryAsync(query));
+            queries.GetHistoryAsync(query, TestContext.Current.CancellationToken));
 
         Assert.Equal(nameof(query.FromUtc), exception.ParamName);
     }
@@ -95,7 +95,7 @@ public sealed class TelemetryQueriesTests
         var query = new TelemetryHistoryQuery(DeviceId, ToUtc: to);
 
         var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
-            queries.GetHistoryAsync(query));
+            queries.GetHistoryAsync(query, TestContext.Current.CancellationToken));
 
         Assert.Equal(nameof(query.ToUtc), exception.ParamName);
     }
@@ -112,7 +112,7 @@ public sealed class TelemetryQueriesTests
             ToUtc: MeasuredAtUtc);
 
         await Assert.ThrowsAsync<ArgumentException>(() =>
-            queries.GetHistoryAsync(query));
+            queries.GetHistoryAsync(query, TestContext.Current.CancellationToken));
     }
 
     [Theory]
@@ -127,7 +127,7 @@ public sealed class TelemetryQueriesTests
         var query = new TelemetryHistoryQuery(DeviceId, Page: page);
 
         var exception = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
-            () => queries.GetHistoryAsync(query));
+            () => queries.GetHistoryAsync(query, TestContext.Current.CancellationToken));
 
         Assert.Equal(nameof(query.Page), exception.ParamName);
     }
@@ -145,7 +145,7 @@ public sealed class TelemetryQueriesTests
         var query = new TelemetryHistoryQuery(DeviceId, PageSize: pageSize);
 
         var exception = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
-            () => queries.GetHistoryAsync(query));
+            () => queries.GetHistoryAsync(query, TestContext.Current.CancellationToken));
 
         Assert.Equal(nameof(query.PageSize), exception.ParamName);
     }
@@ -158,7 +158,7 @@ public sealed class TelemetryQueriesTests
         var queries = new TelemetryQueries(context);
         var query = new TelemetryHistoryQuery(DeviceId, Page: 2, PageSize: 25);
 
-        var result = await queries.GetHistoryAsync(query);
+        var result = await queries.GetHistoryAsync(query, TestContext.Current.CancellationToken);
 
         Assert.Empty(result.Items);
         Assert.Equal(2, result.Page);
@@ -187,8 +187,7 @@ public sealed class TelemetryQueriesTests
         await using var context = database.CreateDbContext();
         var queries = new TelemetryQueries(context);
 
-        var result = await queries.GetHistoryAsync(
-            new TelemetryHistoryQuery(DeviceId));
+        var result = await queries.GetHistoryAsync(new TelemetryHistoryQuery(DeviceId), TestContext.Current.CancellationToken);
 
         var item = Assert.Single(result.Items);
         Assert.Equal(expected.Id, item.MeasurementId);
@@ -220,7 +219,7 @@ public sealed class TelemetryQueriesTests
             DeviceId,
             TelemetryMetric.Humidity);
 
-        var result = await queries.GetHistoryAsync(query);
+        var result = await queries.GetHistoryAsync(query, TestContext.Current.CancellationToken);
 
         var item = Assert.Single(result.Items);
         Assert.Equal(humidity.Id, item.MeasurementId);
@@ -258,7 +257,7 @@ public sealed class TelemetryQueriesTests
             DeviceId,
             FromUtc: MeasuredAtUtc);
 
-        var result = await queries.GetHistoryAsync(query);
+        var result = await queries.GetHistoryAsync(query, TestContext.Current.CancellationToken);
 
         Assert.Equal(
             new[] { newer.Id, boundary.Id },
@@ -296,7 +295,7 @@ public sealed class TelemetryQueriesTests
             DeviceId,
             ToUtc: MeasuredAtUtc);
 
-        var result = await queries.GetHistoryAsync(query);
+        var result = await queries.GetHistoryAsync(query, TestContext.Current.CancellationToken);
 
         Assert.Equal(
             new[] { boundary.Id, older.Id },
@@ -331,8 +330,7 @@ public sealed class TelemetryQueriesTests
         await using var context = database.CreateDbContext();
         var queries = new TelemetryQueries(context);
 
-        var result = await queries.GetHistoryAsync(
-            new TelemetryHistoryQuery(DeviceId));
+        var result = await queries.GetHistoryAsync(new TelemetryHistoryQuery(DeviceId), TestContext.Current.CancellationToken);
 
         Assert.Equal(
             new[] { newest.Id, sameTimeHigherId.Id, sameTimeLowerId.Id },
@@ -360,7 +358,7 @@ public sealed class TelemetryQueriesTests
             Page: 2,
             PageSize: 2);
 
-        var result = await queries.GetHistoryAsync(query);
+        var result = await queries.GetHistoryAsync(query, TestContext.Current.CancellationToken);
 
         Assert.Equal(
             new[] { measurements[2].Id, measurements[1].Id },
@@ -391,8 +389,7 @@ public sealed class TelemetryQueriesTests
         await using var context = database.CreateDbContext();
         var queries = new TelemetryQueries(context);
 
-        var result = await queries.GetHistoryAsync(
-            new TelemetryHistoryQuery(DeviceId));
+        var result = await queries.GetHistoryAsync(new TelemetryHistoryQuery(DeviceId), TestContext.Current.CancellationToken);
 
         Assert.Collection(
             result.Items,
@@ -455,6 +452,6 @@ public sealed class TelemetryQueriesTests
     {
         await using var context = database.CreateDbContext();
         context.Measurements.AddRange(measurements);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
     }
 }

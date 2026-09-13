@@ -36,7 +36,7 @@ public sealed class DeviceHeartbeatServiceTests
         var repository = new FakeDeviceRepository();
         var service = CreateService(repository);
 
-        var result = await service.RecordAsync(Guid.NewGuid());
+        var result = await service.RecordAsync(Guid.NewGuid(), TestContext.Current.CancellationToken);
 
         Assert.Null(result);
         Assert.Equal(1, repository.GetByIdCallCount);
@@ -51,7 +51,7 @@ public sealed class DeviceHeartbeatServiceTests
         var repository = new FakeDeviceRepository([device]);
         var service = CreateService(repository);
 
-        var result = await service.RecordAsync(device.Id);
+        var result = await service.RecordAsync(device.Id, TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
         Assert.Equal(device.Id, result.DeviceId);
@@ -70,7 +70,7 @@ public sealed class DeviceHeartbeatServiceTests
         var repository = new FakeDeviceRepository([device]);
         var service = CreateService(repository);
 
-        var result = await service.RecordAsync(device.Id);
+        var result = await service.RecordAsync(device.Id, TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
         Assert.Equal(HeartbeatAtUtc, result.LastHeartbeatAtUtc);
@@ -86,7 +86,7 @@ public sealed class DeviceHeartbeatServiceTests
         var service = CreateService(repository);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.RecordAsync(device.Id));
+            service.RecordAsync(device.Id, TestContext.Current.CancellationToken));
 
         Assert.Equal(DeviceLifecycle.Registered, device.Lifecycle);
         Assert.Null(device.LastHeartbeatAtUtc);
@@ -103,7 +103,7 @@ public sealed class DeviceHeartbeatServiceTests
         var service = CreateService(repository);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.RecordAsync(device.Id));
+            service.RecordAsync(device.Id, TestContext.Current.CancellationToken));
 
         Assert.Equal(DeviceLifecycle.Retired, device.Lifecycle);
         Assert.Equal(retiredAtUtc, device.RetiredAtUtc);

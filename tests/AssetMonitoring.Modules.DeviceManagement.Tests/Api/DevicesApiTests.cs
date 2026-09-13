@@ -25,7 +25,7 @@ public sealed class DevicesApiTests
         using var client = CreateClient(factory);
         await SynchronizeAsync(client);
 
-        using var response = await client.GetAsync("/api/devices");
+        using var response = await client.GetAsync("/api/devices", TestContext.Current.CancellationToken);
         using var document = await ReadJsonAsync(response);
         var devices = document.RootElement.EnumerateArray().ToArray();
 
@@ -59,7 +59,7 @@ public sealed class DevicesApiTests
         using var client = CreateClient(factory);
         await SynchronizeAsync(client);
 
-        using var response = await client.GetAsync("/api/devices/WH-001");
+        using var response = await client.GetAsync("/api/devices/WH-001", TestContext.Current.CancellationToken);
         using var document = await ReadJsonAsync(response);
         var device = document.RootElement;
 
@@ -94,7 +94,7 @@ public sealed class DevicesApiTests
         var heartbeatAtUtc = UtcNow.AddMinutes(-2);
         await AddDeviceWithHeartbeatAsync(factory, heartbeatAtUtc);
 
-        using var response = await client.GetAsync("/api/devices/WH-001");
+        using var response = await client.GetAsync("/api/devices/WH-001", TestContext.Current.CancellationToken);
         using var document = await ReadJsonAsync(response);
         var deviceResponse = document.RootElement;
 
@@ -117,7 +117,7 @@ public sealed class DevicesApiTests
             UtcNow - OfflineThreshold - TimeSpan.FromTicks(1);
         await AddDeviceWithHeartbeatAsync(factory, heartbeatAtUtc);
 
-        using var response = await client.GetAsync("/api/devices/WH-001");
+        using var response = await client.GetAsync("/api/devices/WH-001", TestContext.Current.CancellationToken);
         using var document = await ReadJsonAsync(response);
         var deviceResponse = document.RootElement;
 
@@ -137,7 +137,7 @@ public sealed class DevicesApiTests
         using var client = CreateClient(factory);
         await SynchronizeAsync(client);
 
-        using var response = await client.GetAsync("/api/devices/UNKNOWN");
+        using var response = await client.GetAsync("/api/devices/UNKNOWN", TestContext.Current.CancellationToken);
         using var document = await ReadJsonAsync(response);
         var problem = document.RootElement;
 
@@ -173,14 +173,12 @@ public sealed class DevicesApiTests
         {
             var dbContext = scope.ServiceProvider
                 .GetRequiredService<DeviceManagementDbContext>();
-            var device = await dbContext.Devices.SingleAsync(
-                item => item.Code == "WH-001");
+            var device = await dbContext.Devices.SingleAsync(item => item.Code == "WH-001", cancellationToken: TestContext.Current.CancellationToken);
             device.Retire(retiredAtUtc);
-            await dbContext.SaveChangesAsync();
+            await dbContext.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
-        using var response = await client.GetAsync(
-            "/api/devices?lifecycle=Retired");
+        using var response = await client.GetAsync("/api/devices?lifecycle=Retired", TestContext.Current.CancellationToken);
         using var document = await ReadJsonAsync(response);
         var deviceResponse = Assert.Single(
             document.RootElement.EnumerateArray().ToArray());
@@ -201,8 +199,7 @@ public sealed class DevicesApiTests
         using var factory = new AssetMonitoringApiFactory();
         using var client = CreateClient(factory);
 
-        using var response = await client.GetAsync(
-            "/api/devices?lifecycle=Unknown");
+        using var response = await client.GetAsync("/api/devices?lifecycle=Unknown", TestContext.Current.CancellationToken);
         using var document = await ReadJsonAsync(response);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -238,7 +235,7 @@ public sealed class DevicesApiTests
         var dbContext = scope.ServiceProvider
             .GetRequiredService<DeviceManagementDbContext>();
         dbContext.Devices.Add(device);
-        await dbContext.SaveChangesAsync();
+        await dbContext.SaveChangesAsync(TestContext.Current.CancellationToken);
     }
 
     private static async Task SynchronizeAsync(HttpClient client)

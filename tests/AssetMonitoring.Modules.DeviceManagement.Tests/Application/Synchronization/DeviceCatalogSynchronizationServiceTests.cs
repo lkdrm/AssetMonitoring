@@ -55,7 +55,7 @@ public sealed class DeviceCatalogSynchronizationServiceTests
             DeviceCatalogTestData.CreateValidDocument(9),
             repository);
 
-        var result = await service.SynchronizeAsync("catalog.json");
+        var result = await service.SynchronizeAsync("catalog.json", TestContext.Current.CancellationToken);
 
         Assert.False(result.Applied);
         Assert.False(result.HasChanges);
@@ -76,7 +76,7 @@ public sealed class DeviceCatalogSynchronizationServiceTests
         var repository = new FakeDeviceRepository();
         var service = CreateService(document, repository);
 
-        var result = await service.SynchronizeAsync("catalog.json");
+        var result = await service.SynchronizeAsync("catalog.json", TestContext.Current.CancellationToken);
 
         Assert.True(result.Applied);
         Assert.True(result.HasChanges);
@@ -104,7 +104,7 @@ public sealed class DeviceCatalogSynchronizationServiceTests
         var repository = new FakeDeviceRepository(existingDevices);
         var service = CreateService(document, repository);
 
-        var result = await service.SynchronizeAsync("catalog.json");
+        var result = await service.SynchronizeAsync("catalog.json", TestContext.Current.CancellationToken);
 
         Assert.True(result.Applied);
         Assert.False(result.HasChanges);
@@ -133,7 +133,7 @@ public sealed class DeviceCatalogSynchronizationServiceTests
         var repository = new FakeDeviceRepository(existingDevices);
         var service = CreateService(document, repository);
 
-        var result = await service.SynchronizeAsync("catalog.json");
+        var result = await service.SynchronizeAsync("catalog.json", TestContext.Current.CancellationToken);
 
         Assert.Equal(1, result.Updated);
         Assert.Equal(9, result.Unchanged);
@@ -154,7 +154,7 @@ public sealed class DeviceCatalogSynchronizationServiceTests
         var repository = new FakeDeviceRepository(existingDevices);
         var service = CreateService(document, repository);
 
-        var result = await service.SynchronizeAsync("catalog.json");
+        var result = await service.SynchronizeAsync("catalog.json", TestContext.Current.CancellationToken);
 
         Assert.Equal(1, result.Retired);
         Assert.Equal(10, result.Unchanged);
@@ -177,7 +177,7 @@ public sealed class DeviceCatalogSynchronizationServiceTests
         var repository = new FakeDeviceRepository(existingDevices);
         var service = CreateService(document, repository);
 
-        var result = await service.SynchronizeAsync("catalog.json");
+        var result = await service.SynchronizeAsync("catalog.json", TestContext.Current.CancellationToken);
 
         Assert.Equal(0, result.Retired);
         Assert.Equal(10, result.Unchanged);
@@ -198,7 +198,7 @@ public sealed class DeviceCatalogSynchronizationServiceTests
         var repository = new FakeDeviceRepository(existingDevices);
         var service = CreateService(document, repository);
 
-        var result = await service.SynchronizeAsync("catalog.json");
+        var result = await service.SynchronizeAsync("catalog.json", TestContext.Current.CancellationToken);
 
         Assert.Equal(1, result.Restored);
         Assert.Equal(0, result.Updated);
@@ -228,7 +228,7 @@ public sealed class DeviceCatalogSynchronizationServiceTests
         var repository = new FakeDeviceRepository(existingDevices);
         var service = CreateService(document, repository);
 
-        var result = await service.SynchronizeAsync("catalog.json");
+        var result = await service.SynchronizeAsync("catalog.json", TestContext.Current.CancellationToken);
 
         Assert.Equal(1, result.Restored);
         Assert.Equal(1, result.Updated);
@@ -256,7 +256,7 @@ public sealed class DeviceCatalogSynchronizationServiceTests
         var repository = new FakeDeviceRepository(existingDevices);
         var service = CreateService(document, repository);
 
-        var result = await service.SynchronizeAsync("catalog.json");
+        var result = await service.SynchronizeAsync("catalog.json", TestContext.Current.CancellationToken);
 
         Assert.Equal(0, result.Created);
         Assert.Equal(10, result.Unchanged);
@@ -271,8 +271,8 @@ public sealed class DeviceCatalogSynchronizationServiceTests
         var repository = new FakeDeviceRepository();
         var service = CreateService(document, repository);
 
-        var firstResult = await service.SynchronizeAsync("catalog.json");
-        var secondResult = await service.SynchronizeAsync("catalog.json");
+        var firstResult = await service.SynchronizeAsync("catalog.json", TestContext.Current.CancellationToken);
+        var secondResult = await service.SynchronizeAsync("catalog.json", TestContext.Current.CancellationToken);
 
         Assert.Equal(10, firstResult.Created);
         Assert.Equal(10, secondResult.Unchanged);

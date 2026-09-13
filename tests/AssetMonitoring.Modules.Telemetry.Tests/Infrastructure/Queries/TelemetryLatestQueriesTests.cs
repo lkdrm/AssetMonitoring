@@ -24,7 +24,7 @@ public sealed class TelemetryLatestQueriesTests
         var queries = new TelemetryQueries(context);
 
         await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            queries.GetLatestAsync(null!));
+            queries.GetLatestAsync(null!, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -38,7 +38,7 @@ public sealed class TelemetryLatestQueriesTests
             TelemetryMetric.Temperature);
 
         var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
-            queries.GetLatestAsync(query));
+            queries.GetLatestAsync(query, TestContext.Current.CancellationToken));
 
         Assert.Equal(nameof(query.DeviceId), exception.ParamName);
     }
@@ -54,7 +54,7 @@ public sealed class TelemetryLatestQueriesTests
             (TelemetryMetric)999);
 
         var exception = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
-            () => queries.GetLatestAsync(query));
+            () => queries.GetLatestAsync(query, TestContext.Current.CancellationToken));
 
         Assert.Equal(nameof(query.Metric), exception.ParamName);
     }
@@ -69,7 +69,7 @@ public sealed class TelemetryLatestQueriesTests
             DeviceId,
             TelemetryMetric.Temperature);
 
-        var result = await queries.GetLatestAsync(query);
+        var result = await queries.GetLatestAsync(query, TestContext.Current.CancellationToken);
 
         Assert.Null(result);
     }
@@ -104,7 +104,7 @@ public sealed class TelemetryLatestQueriesTests
             DeviceId,
             TelemetryMetric.Temperature);
 
-        var result = await queries.GetLatestAsync(query);
+        var result = await queries.GetLatestAsync(query, TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
         Assert.Equal(expected.Id, result.MeasurementId);
@@ -139,10 +139,9 @@ public sealed class TelemetryLatestQueriesTests
         await using var context = database.CreateDbContext();
         var queries = new TelemetryQueries(context);
 
-        var result = await queries.GetLatestAsync(
-            new TelemetryLatestQuery(
+        var result = await queries.GetLatestAsync(new TelemetryLatestQuery(
                 DeviceId,
-                TelemetryMetric.Temperature));
+                TelemetryMetric.Temperature), TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
         Assert.Equal(newest.Id, result.MeasurementId);
@@ -171,10 +170,9 @@ public sealed class TelemetryLatestQueriesTests
         await using var context = database.CreateDbContext();
         var queries = new TelemetryQueries(context);
 
-        var result = await queries.GetLatestAsync(
-            new TelemetryLatestQuery(
+        var result = await queries.GetLatestAsync(new TelemetryLatestQuery(
                 DeviceId,
-                TelemetryMetric.Temperature));
+                TelemetryMetric.Temperature), TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
         Assert.Equal(higherId.Id, result.MeasurementId);
@@ -195,10 +193,9 @@ public sealed class TelemetryLatestQueriesTests
         await using var context = database.CreateDbContext();
         var queries = new TelemetryQueries(context);
 
-        var result = await queries.GetLatestAsync(
-            new TelemetryLatestQuery(
+        var result = await queries.GetLatestAsync(new TelemetryLatestQuery(
                 DeviceId,
-                TelemetryMetric.Temperature));
+                TelemetryMetric.Temperature), TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
         Assert.Equal(measurement.Id, result.MeasurementId);
@@ -224,10 +221,9 @@ public sealed class TelemetryLatestQueriesTests
         await using var context = database.CreateDbContext();
         var queries = new TelemetryQueries(context);
 
-        var result = await queries.GetLatestAsync(
-            new TelemetryLatestQuery(
+        var result = await queries.GetLatestAsync(new TelemetryLatestQuery(
                 DeviceId,
-                TelemetryMetric.DoorState));
+                TelemetryMetric.DoorState), TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
         Assert.Equal(measurement.Id, result.MeasurementId);
@@ -280,6 +276,6 @@ public sealed class TelemetryLatestQueriesTests
     {
         await using var context = database.CreateDbContext();
         context.Measurements.AddRange(measurements);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
     }
 }

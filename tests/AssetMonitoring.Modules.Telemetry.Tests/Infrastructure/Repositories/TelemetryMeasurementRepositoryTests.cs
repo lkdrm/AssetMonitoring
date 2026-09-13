@@ -37,7 +37,7 @@ public sealed class TelemetryMeasurementRepositoryTests
         await using var context = database.CreateDbContext();
         var repository = new TelemetryMeasurementRepository(context);
 
-        var exists = await repository.ExistsAsync(Guid.NewGuid());
+        var exists = await repository.ExistsAsync(Guid.NewGuid(), TestContext.Current.CancellationToken);
 
         Assert.False(exists);
     }
@@ -51,13 +51,13 @@ public sealed class TelemetryMeasurementRepositoryTests
         await using (var writeContext = database.CreateDbContext())
         {
             writeContext.Measurements.Add(measurement);
-            await writeContext.SaveChangesAsync();
+            await writeContext.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         await using var context = database.CreateDbContext();
         var repository = new TelemetryMeasurementRepository(context);
 
-        var exists = await repository.ExistsAsync(measurement.Id);
+        var exists = await repository.ExistsAsync(measurement.Id, TestContext.Current.CancellationToken);
 
         Assert.True(exists);
     }
@@ -73,13 +73,13 @@ public sealed class TelemetryMeasurementRepositoryTests
             var repository = new TelemetryMeasurementRepository(context);
 
             repository.Add(measurement);
-            await repository.SaveChangesAsync();
+            await repository.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         await using var readContext = database.CreateDbContext();
         var persistedMeasurement = await readContext.Measurements
             .AsNoTracking()
-            .SingleAsync();
+            .SingleAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(measurement.Id, persistedMeasurement.Id);
         Assert.Equal(DeviceId, persistedMeasurement.DeviceId);

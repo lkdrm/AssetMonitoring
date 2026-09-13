@@ -32,7 +32,7 @@ public sealed class DeviceCatalogLoaderTests
             new DeviceCatalogValidator(),
             reader);
 
-        var result = await loader.LoadAsync("catalog.json");
+        var result = await loader.LoadAsync("catalog.json", TestContext.Current.CancellationToken);
 
         Assert.Same(document, result.Document);
         Assert.True(result.IsValid);
@@ -48,7 +48,7 @@ public sealed class DeviceCatalogLoaderTests
             new DeviceCatalogValidator(),
             reader);
 
-        var result = await loader.LoadAsync("catalog.json");
+        var result = await loader.LoadAsync("catalog.json", TestContext.Current.CancellationToken);
 
         Assert.False(result.IsValid);
         Assert.Contains(
@@ -92,7 +92,7 @@ public sealed class DeviceCatalogLoaderTests
             reader);
 
         var exception = await Assert.ThrowsAsync<IOException>(() =>
-            loader.LoadAsync("catalog.json"));
+            loader.LoadAsync("catalog.json", TestContext.Current.CancellationToken));
 
         Assert.Same(expectedException, exception);
     }
