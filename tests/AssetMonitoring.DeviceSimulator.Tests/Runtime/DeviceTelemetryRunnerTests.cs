@@ -2,6 +2,7 @@ using AssetMonitoring.DeviceSimulator.Api.Contracts;
 using AssetMonitoring.DeviceSimulator.Configuration;
 using AssetMonitoring.DeviceSimulator.Interfaces;
 using AssetMonitoring.DeviceSimulator.Runtime;
+using AssetMonitoring.DeviceSimulator.Scenarios;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
@@ -14,7 +15,8 @@ namespace AssetMonitoring.DeviceSimulator.Tests.Runtime;
 
 /// <summary>
 /// Verifies telemetry batches, stable measurements during retries, failure limits,
-/// cancellation, and independent device execution using controlled time.
+/// cancellation, scenario integration, and independent device execution using
+/// controlled time.
 /// </summary>
 /// <remarks>
 /// Uses the production NormalTelemetryGenerator and DeviceTelemetryRunner.
@@ -618,6 +620,593 @@ public sealed class DeviceTelemetryRunnerTests
         Assert.Equal(failingDevice.Id, Assert.IsType<Guid>(terminal.Properties["DeviceId"]));
     }
 
+    /// <summary>
+    /// Verifies that the scenario overload accepts null and preserves normal
+    /// numeric ranges, scheduled states, timestamps, and request identities.
+    /// </summary>
+    [Fact]
+    public async Task RunAsyncWithNullScenarioSendsNormalTelemetry()
+    {
+        await using var harness = new RunnerHarness();
+        var device = CreateDevice() with
+        {
+            Capabilities = new[]
+            {
+                SimulatorDeviceCapability.Temperature,
+                SimulatorDeviceCapability.Humidity,
+                SimulatorDeviceCapability.DoorState,
+                SimulatorDeviceCapability.LightState
+            }
+        };
+
+        var operation = harness.Start(device, null, harness.Clock.GetTimestamp());
+        await harness.Clock.WaitForDelayAsync();
+
+        var requests = harness.Client.Requests;
+        Assert.Equal(4, requests.Count);
+        Assert.False(operation.IsCompleted);
+        Assert.Equal(4, requests.Select(x => x.Measurement.MeasurementId).Distinct().Count());
+        Assert.All(requests, request =>
+        {
+            Assert.Equal(device.Id, request.DeviceId);
+            Assert.Equal(harness.Cancellation.Token, request.CancellationToken);
+            Assert.NotEqual(Guid.Empty, request.Measurement.MeasurementId);
+            Assert.Equal(InitialUtc.UtcDateTime, request.Measurement.MeasuredAtUtc);
+            Assert.Equal(DateTimeKind.Utc, request.Measurement.MeasuredAtUtc.Kind);
+        });
+        var temperature = Assert.Single(requests.Where(x =>
+            x.Measurement.Metric == SimulatorTelemetryMetric.Temperature)).Measurement;
+        Assert.InRange(Assert.IsType<double>(temperature.NumericValue), 20.0, 24.0);
+        Assert.Null(temperature.StateValue);
+        AssertNormalNonTemperatureMeasurements(requests);
+    }
+
+    /// <summary>
+    /// Verifies that elapsed simulation time drives pending, active, recovering,
+    /// and completed phases across successive telemetry cycles.
+    /// </summary>
+    [Fact]
+    public async Task RunAsyncAdvancesScenarioThroughAllPhasesUsingSimulationTime()
+    {
+        await using var harness = new RunnerHarness();
+        var device = CreateDevice();
+        var definition = CreateScenarioDefinition() with
+        {
+            StartsAfter = TimeSpan.FromMinutes(2),
+            Duration = TimeSpan.FromMinutes(2),
+            RecoveryDuration = TimeSpan.FromMinutes(1),
+            MaximumRisePerMeasurement = 20,
+            MaximumRecoveryPerMeasurement = 20
+        };
+        var scenario = new HighTemperatureScenarioRuntime(definition, device.Id, new FixedScenarioRandom());
+        var expectedPhases = new[]
+        {
+            ScenarioPhase.Pending, ScenarioPhase.Pending,
+            ScenarioPhase.Active, ScenarioPhase.Active,
+            ScenarioPhase.Recovering, ScenarioPhase.Completed, ScenarioPhase.Completed
+        };
+        var operation = harness.Start(device, CreateSequence(device.Id, scenario), harness.Clock.GetTimestamp());
+
+        for (var cycle = 0; cycle < expectedPhases.Length; cycle++)
+        {
+            await harness.Clock.WaitForDelayAsync();
+
+            Assert.Equal(cycle + 1, harness.Client.Requests.Count);
+            Assert.Equal(expectedPhases[cycle], scenario.Phase);
+            var measurement = harness.Client.Requests[cycle].Measurement;
+            var temperature = Assert.IsType<double>(measurement.NumericValue);
+            if (cycle < 2)
+                Assert.Null(scenario.CurrentTemperature);
+            else if (cycle <= 5)
+                Assert.Equal(temperature, Assert.IsType<double>(scenario.CurrentTemperature));
+            else
+                Assert.Equal(harness.Client.Requests[5].Measurement.NumericValue,
+                    scenario.CurrentTemperature);
+            Assert.Equal(SimulatorTelemetryMetric.Temperature, measurement.Metric);
+            Assert.Null(measurement.StateValue);
+            Assert.Equal((InitialUtc + TimeSpan.FromMinutes(cycle)).UtcDateTime, measurement.MeasuredAtUtc);
+            if (cycle is >= 2 and <= 4)
+                Assert.Equal(32.0, temperature);
+            else
+                Assert.InRange(temperature, 20.0, 24.0);
+
+            if (cycle < expectedPhases.Length - 1)
+                harness.Clock.Advance(TelemetryInterval);
+        }
+
+        Assert.False(operation.IsCompleted);
+        Assert.Equal(expectedPhases.Length, harness.Client.Requests
+            .Select(x => x.Measurement.MeasurementId).Distinct().Count());
+    }
+
+    /// <summary>
+    /// Verifies one temperature increase per new batch, state reuse across
+    /// cycles, and unchanged humidity, door, and light measurements.
+    /// </summary>
+    [Fact]
+    public async Task RunAsyncAppliesScenarioOnlyOncePerTemperatureMeasurement()
+    {
+        await using var harness = new RunnerHarness();
+        var device = CreateDevice() with
+        {
+            Capabilities = new[]
+            {
+                SimulatorDeviceCapability.Temperature,
+                SimulatorDeviceCapability.Humidity,
+                SimulatorDeviceCapability.DoorState,
+                SimulatorDeviceCapability.LightState,
+                SimulatorDeviceCapability.Temperature
+            }
+        };
+        var scenario = new HighTemperatureScenarioRuntime(
+            CreateScenarioDefinition(), device.Id, new FixedScenarioRandom());
+        Assert.Equal(24.0, scenario.GetNextTemperature(24, TimeSpan.Zero));
+        var simulationStartedAt = harness.Clock.GetTimestamp();
+        harness.Clock.Advance(TimeSpan.FromMinutes(1));
+        _ = harness.Start(device, CreateSequence(device.Id, scenario), simulationStartedAt);
+
+        for (var cycle = 0; cycle < 2; cycle++)
+        {
+            await harness.Clock.WaitForDelayAsync();
+
+            Assert.Equal((cycle + 1) * 4, harness.Client.Requests.Count);
+            var batch = harness.Client.Requests.Skip(cycle * 4).Take(4).ToArray();
+            var temperature = Assert.Single(batch.Where(x =>
+                x.Measurement.Metric == SimulatorTelemetryMetric.Temperature)).Measurement;
+            var expectedTemperature = cycle == 0 ? 26.0 : 28.0;
+            Assert.Equal(expectedTemperature, Assert.IsType<double>(temperature.NumericValue));
+            Assert.Equal(expectedTemperature, Assert.IsType<double>(scenario.CurrentTemperature));
+            Assert.Equal(ScenarioPhase.Active, scenario.Phase);
+            Assert.Null(temperature.StateValue);
+            Assert.All(batch, request =>
+            {
+                Assert.Equal(device.Id, request.DeviceId);
+                Assert.NotEqual(Guid.Empty, request.Measurement.MeasurementId);
+                Assert.Equal((InitialUtc + TimeSpan.FromMinutes(cycle + 1)).UtcDateTime,
+                    request.Measurement.MeasuredAtUtc);
+            });
+            AssertNormalNonTemperatureMeasurements(batch);
+
+            if (cycle == 0)
+                harness.Clock.Advance(TelemetryInterval);
+        }
+
+        Assert.Equal(8, harness.Client.Requests.Select(x => x.Measurement.MeasurementId).Distinct().Count());
+    }
+
+    /// <summary>
+    /// Verifies that a device without temperature capability never invokes the
+    /// scenario, even when the supplied runtime would reject a temperature call.
+    /// </summary>
+    [Fact]
+    public async Task RunAsyncWithoutTemperatureCapabilityLeavesScenarioUntouched()
+    {
+        await using var harness = new RunnerHarness();
+        var device = CreateDevice() with
+        {
+            Capabilities = new[]
+            {
+                SimulatorDeviceCapability.Humidity,
+                SimulatorDeviceCapability.DoorState,
+                SimulatorDeviceCapability.LightState
+            }
+        };
+        var scenario = new HighTemperatureScenarioRuntime(
+            CreateScenarioDefinition() with { AutoRecover = false, RecoveryDuration = null },
+            device.Id, new FixedScenarioRandom());
+        var simulationStartedAt = harness.Clock.GetTimestamp();
+        harness.Clock.Advance(TelemetryInterval);
+        _ = harness.Start(device, CreateSequence(device.Id, scenario), simulationStartedAt);
+        await harness.Clock.WaitForDelayAsync();
+
+        Assert.Equal(3, harness.Client.Requests.Count);
+        AssertNormalNonTemperatureMeasurements(harness.Client.Requests);
+        Assert.Equal(ScenarioPhase.Pending, scenario.Phase);
+        Assert.Null(scenario.CurrentTemperature);
+    }
+
+    /// <summary>
+    /// Verifies that a device entering the runner later still uses the shared
+    /// simulation origin rather than restarting its scenario timeline.
+    /// </summary>
+    [Fact]
+    public async Task RunAsyncUsesSharedStartTimestampForDevicesStartedAtDifferentTimes()
+    {
+        await using var harness = new RunnerHarness();
+        var firstDevice = CreateDevice(1);
+        var secondDevice = CreateDevice(2);
+        var definition = CreateScenarioDefinition() with { MaximumRisePerMeasurement = 20 };
+        var firstScenario = new HighTemperatureScenarioRuntime(
+            definition, firstDevice.Id, new FixedScenarioRandom());
+        var secondScenario = new HighTemperatureScenarioRuntime(
+            definition, secondDevice.Id, new FixedScenarioRandom());
+        var simulationStartedAt = harness.Clock.GetTimestamp();
+
+        _ = harness.Start(firstDevice, CreateSequence(firstDevice.Id, firstScenario), simulationStartedAt);
+        await harness.Clock.WaitForDelayAsync();
+        Assert.Equal(ScenarioPhase.Pending, firstScenario.Phase);
+
+        harness.Clock.Advance(TelemetryInterval);
+        await harness.Clock.WaitForDelayAsync();
+        _ = harness.Start(secondDevice, CreateSequence(secondDevice.Id, secondScenario), simulationStartedAt);
+        await harness.Clock.WaitForDelayAsync();
+
+        Assert.Equal(ScenarioPhase.Active, firstScenario.Phase);
+        Assert.Equal(ScenarioPhase.Active, secondScenario.Phase);
+        Assert.Equal(32.0, Assert.IsType<double>(firstScenario.CurrentTemperature));
+        Assert.Equal(32.0, Assert.IsType<double>(secondScenario.CurrentTemperature));
+        var requestsAtSharedStart = harness.Client.Requests.Where(x =>
+            x.Measurement.MeasuredAtUtc == (InitialUtc + TelemetryInterval).UtcDateTime).ToArray();
+        Assert.Equal(2, requestsAtSharedStart.Length);
+        Assert.Equal(new[] { firstDevice.Id, secondDevice.Id }.OrderBy(x => x),
+            requestsAtSharedStart.Select(x => x.DeviceId).OrderBy(x => x));
+        Assert.All(requestsAtSharedStart, request =>
+            Assert.Equal(32.0, Assert.IsType<double>(request.Measurement.NumericValue)));
+    }
+
+    /// <summary>
+    /// Verifies that retries preserve the already transformed measurement and
+    /// do not advance scenario state. Only the next new cycle raises temperature.
+    /// </summary>
+    /// <param name="recorded">Whether success reports a new insert or an existing measurement.</param>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task RunAsyncRetriesTransformedMeasurementWithoutAdvancingScenario(bool recorded)
+    {
+        var calls = 0;
+        await using var harness = new RunnerHarness((_, measurement, _) =>
+            Interlocked.Increment(ref calls) <= 2
+                ? Task.FromException<SimulatorTelemetryRecordingResponse>(
+                    new HttpRequestException("Temporary telemetry failure."))
+                : Task.FromResult(CreateResponse(measurement, recorded)));
+        var device = CreateDevice();
+        var scenario = new HighTemperatureScenarioRuntime(
+            CreateScenarioDefinition() with { Duration = TimeSpan.FromMinutes(20) },
+            device.Id, new FixedScenarioRandom());
+        Assert.Equal(24.0, scenario.GetNextTemperature(24, TimeSpan.Zero));
+        var simulationStartedAt = harness.Clock.GetTimestamp();
+        harness.Clock.Advance(TelemetryInterval);
+        var operation = harness.Start(device, CreateSequence(device.Id, scenario), simulationStartedAt);
+
+        // Two retry delays, followed by the cycle delay after success.
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            await harness.Clock.WaitForDelayAsync();
+            Assert.Equal(attempt, harness.Client.Requests.Count);
+            Assert.Equal(26.0, Assert.IsType<double>(scenario.CurrentTemperature));
+            Assert.Equal(ScenarioPhase.Active, scenario.Phase);
+            if (attempt < 3)
+                harness.Clock.Advance(TelemetryInterval);
+        }
+
+        var original = harness.Client.Requests[0].Measurement;
+        Assert.NotEqual(Guid.Empty, original.MeasurementId);
+        Assert.Equal(SimulatorTelemetryMetric.Temperature, original.Metric);
+        Assert.Equal(26.0, Assert.IsType<double>(original.NumericValue));
+        Assert.Null(original.StateValue);
+        Assert.Equal((InitialUtc + TelemetryInterval).UtcDateTime, original.MeasuredAtUtc);
+        Assert.All(harness.Client.Requests, request =>
+        {
+            Assert.Same(original, request.Measurement);
+            Assert.Equal(device.Id, request.DeviceId);
+            Assert.Equal(harness.Cancellation.Token, request.CancellationToken);
+        });
+
+        harness.Clock.Advance(TelemetryInterval);
+        await harness.Clock.WaitForDelayAsync();
+
+        Assert.Equal(4, harness.Client.Requests.Count);
+        Assert.False(operation.IsCompleted);
+        var next = harness.Client.Requests[3].Measurement;
+        Assert.NotEqual(original.MeasurementId, next.MeasurementId);
+        Assert.Equal(28.0, Assert.IsType<double>(next.NumericValue));
+        Assert.Equal(28.0, Assert.IsType<double>(scenario.CurrentTemperature));
+        Assert.Equal((InitialUtc + TimeSpan.FromMinutes(4)).UtcDateTime, next.MeasuredAtUtc);
+    }
+
+    /// <summary>
+    /// Verifies that elapsed time is evaluated when temperature is processed,
+    /// including time spent awaiting a preceding metric from the same batch.
+    /// The batch's original measurement timestamp is preserved.
+    /// </summary>
+    [Fact]
+    public async Task RunAsyncRecalculatesElapsedTimeAfterAwaitingPreviousMetric()
+    {
+        var humidityStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseHumidity = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var harness = new RunnerHarness(async (_, measurement, token) =>
+        {
+            if (measurement.Metric == SimulatorTelemetryMetric.Humidity)
+            {
+                humidityStarted.TrySetResult();
+                await releaseHumidity.Task.WaitAsync(token);
+            }
+            return CreateResponse(measurement);
+        });
+        var device = CreateDevice() with
+        {
+            Capabilities = new[] { SimulatorDeviceCapability.Humidity, SimulatorDeviceCapability.Temperature }
+        };
+        var scenario = new HighTemperatureScenarioRuntime(
+            CreateScenarioDefinition() with { MaximumRisePerMeasurement = 20 },
+            device.Id, new FixedScenarioRandom());
+        _ = harness.Start(device, CreateSequence(device.Id, scenario), harness.Clock.GetTimestamp());
+        await AwaitAsync(humidityStarted.Task);
+        Assert.Single(harness.Client.Requests);
+        Assert.Null(scenario.CurrentTemperature);
+
+        harness.Clock.Advance(TelemetryInterval);
+        releaseHumidity.SetResult();
+        await harness.Clock.WaitForDelayAsync();
+
+        Assert.Equal(2, harness.Client.Requests.Count);
+        Assert.Equal(ScenarioPhase.Active, scenario.Phase);
+        var temperature = harness.Client.Requests[1].Measurement;
+        Assert.Equal(SimulatorTelemetryMetric.Temperature, temperature.Metric);
+        Assert.Equal(32.0, Assert.IsType<double>(temperature.NumericValue));
+        Assert.Equal(InitialUtc.UtcDateTime, temperature.MeasuredAtUtc);
+        Assert.Null(temperature.StateValue);
+    }
+
+    /// <summary>
+    /// Verifies that cancellation before execution prevents requests, delays,
+    /// and any mutation of the supplied scenario runtime.
+    /// </summary>
+    [Fact]
+    public async Task RunAsyncWithCanceledTokenDoesNotAdvanceScenario()
+    {
+        await using var harness = new RunnerHarness();
+        var device = CreateDevice();
+        var scenario = new HighTemperatureScenarioRuntime(
+            CreateScenarioDefinition(), device.Id, new FixedScenarioRandom());
+        var simulationStartedAt = harness.Clock.GetTimestamp();
+        harness.Clock.Advance(TelemetryInterval);
+        await harness.Cancellation.CancelAsync();
+
+        var operation = harness.Start(device, CreateSequence(device.Id, scenario), simulationStartedAt);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => AwaitAsync(operation));
+
+        Assert.Empty(harness.Client.Requests);
+        Assert.Equal(0, harness.Clock.TimerCount);
+        Assert.Equal(ScenarioPhase.Pending, scenario.Phase);
+        Assert.Null(scenario.CurrentTemperature);
+    }
+
+    /// <summary>
+    /// Verifies that an applicable scenario failure propagates before sending
+    /// telemetry and is not handled as a transient HTTP failure.
+    /// </summary>
+    [Fact]
+    public async Task RunAsyncWithUnsupportedScenarioPropagatesFailureBeforeSending()
+    {
+        await using var harness = new RunnerHarness();
+        var device = CreateDevice();
+        var scenario = new HighTemperatureScenarioRuntime(
+            CreateScenarioDefinition() with { AutoRecover = false, RecoveryDuration = null },
+            device.Id, new FixedScenarioRandom());
+
+        var simulationStartedAt = harness.Clock.GetTimestamp();
+        harness.Clock.Advance(TelemetryInterval);
+        var operation = harness.Start(device, CreateSequence(device.Id, scenario), simulationStartedAt);
+        await Assert.ThrowsAsync<NotSupportedException>(() => AwaitAsync(operation));
+
+        Assert.Empty(harness.Client.Requests);
+        Assert.Equal(0, harness.Clock.TimerCount);
+        Assert.Empty(harness.Logger.Entries);
+        Assert.Null(scenario.CurrentTemperature);
+    }
+
+    /// <summary>
+    /// Verifies normal completion for a device without capabilities while the
+    /// supplied scenario remains unused.
+    /// </summary>
+    [Fact]
+    public async Task RunAsyncWithScenarioAndNoCapabilitiesCompletesWithoutAdvancingScenario()
+    {
+        await using var harness = new RunnerHarness();
+        var device = CreateDevice() with { Capabilities = Array.Empty<SimulatorDeviceCapability>() };
+        var scenario = new HighTemperatureScenarioRuntime(
+            CreateScenarioDefinition(), device.Id, new FixedScenarioRandom());
+
+        await AwaitAsync(harness.Start(device, CreateSequence(device.Id, scenario), harness.Clock.GetTimestamp()));
+
+        Assert.Empty(harness.Client.Requests);
+        Assert.Equal(0, harness.Clock.TimerCount);
+        Assert.Equal(ScenarioPhase.Pending, scenario.Phase);
+        Assert.Null(scenario.CurrentTemperature);
+        Assert.Equal(LogLevel.Warning, Assert.Single(harness.Logger.Entries).Level);
+    }
+
+    /// <summary>
+    /// Verifies sequential execution of overlapping scenarios through the runner,
+    /// including a separate final recovery measurement and the full active duration
+    /// of the delayed second scenario.
+    /// </summary>
+    [Fact]
+    public async Task RunAsyncExecutesQueuedScenariosAcrossSeparateTelemetryCycles()
+    {
+        await using var harness = new RunnerHarness();
+        var device = CreateDevice();
+        var definition = CreateScenarioDefinition() with
+        {
+            Duration = TimeSpan.FromMinutes(1),
+            RecoveryDuration = TimeSpan.FromMinutes(1),
+            MaximumRisePerMeasurement = 30,
+            MaximumRecoveryPerMeasurement = 30
+        };
+        var first = new HighTemperatureScenarioRuntime(definition, device.Id, new FixedScenarioRandom());
+        var second = new HighTemperatureScenarioRuntime(definition with
+        {
+            Name = "SecondScenario",
+            AbnormalMinimum = 40,
+            AbnormalMaximum = 44
+        }, device.Id, new FixedScenarioRandom());
+        var sequence = CreateSequence(device.Id, first, second);
+        var operation = harness.Start(device, sequence, harness.Clock.GetTimestamp());
+        var expectedFirstPhases = new[]
+        {
+            ScenarioPhase.Pending, ScenarioPhase.Active, ScenarioPhase.Recovering,
+            ScenarioPhase.Completed, ScenarioPhase.Completed, ScenarioPhase.Completed,
+            ScenarioPhase.Completed, ScenarioPhase.Completed
+        };
+        var expectedSecondPhases = new[]
+        {
+            ScenarioPhase.Pending, ScenarioPhase.Pending, ScenarioPhase.Pending,
+            ScenarioPhase.Pending, ScenarioPhase.Active, ScenarioPhase.Recovering,
+            ScenarioPhase.Completed, ScenarioPhase.Completed
+        };
+
+        for (var cycle = 0; cycle < expectedFirstPhases.Length; cycle++)
+        {
+            await harness.Clock.WaitForDelayAsync();
+
+            Assert.Equal(cycle + 1, harness.Client.Requests.Count);
+            Assert.Equal(expectedFirstPhases[cycle], first.Phase);
+            Assert.Equal(expectedSecondPhases[cycle], second.Phase);
+            var measurement = harness.Client.Requests[cycle].Measurement;
+            var temperature = Assert.IsType<double>(measurement.NumericValue);
+            Assert.Equal(SimulatorTelemetryMetric.Temperature, measurement.Metric);
+            Assert.Null(measurement.StateValue);
+            Assert.Equal((InitialUtc + TimeSpan.FromMinutes(cycle)).UtcDateTime,
+                measurement.MeasuredAtUtc);
+            if (cycle is 1 or 2)
+                Assert.Equal(32.0, temperature);
+            else if (cycle is 4 or 5)
+                Assert.Equal(42.0, temperature);
+            else
+                Assert.InRange(temperature, 20.0, 24.0);
+
+            if (cycle <= 3)
+                Assert.Null(second.CurrentTemperature);
+            if (cycle >= 3)
+                Assert.Equal(harness.Client.Requests[3].Measurement.NumericValue, first.CurrentTemperature);
+            if (cycle >= 6)
+                Assert.Equal(harness.Client.Requests[6].Measurement.NumericValue, second.CurrentTemperature);
+
+            if (cycle < expectedFirstPhases.Length - 1)
+                harness.Clock.Advance(TelemetryInterval);
+        }
+
+        Assert.False(operation.IsCompleted);
+        Assert.Equal(8, harness.Client.Requests.Select(x => x.Measurement.MeasurementId).Distinct().Count());
+    }
+
+    /// <summary>
+    /// Verifies that retrying a final recovery measurement does not start the
+    /// next queued scenario. The successor starts only with a new measurement
+    /// after the prior measurement has been acknowledged and the cycle delay ends.
+    /// </summary>
+    [Fact]
+    public async Task RunAsyncRetryOfCompletionMeasurementDoesNotStartNextScenario()
+    {
+        var calls = 0;
+        await using var harness = new RunnerHarness((_, measurement, _) =>
+            Interlocked.Increment(ref calls) == 3
+                ? Task.FromException<SimulatorTelemetryRecordingResponse>(
+                    new HttpRequestException("Final recovery measurement was not acknowledged."))
+                : Task.FromResult(CreateResponse(measurement)));
+        var device = CreateDevice();
+        var definition = CreateScenarioDefinition() with
+        {
+            StartsAfter = TimeSpan.Zero,
+            Duration = TimeSpan.FromMinutes(1),
+            RecoveryDuration = TimeSpan.FromMinutes(1),
+            MaximumRisePerMeasurement = 30,
+            MaximumRecoveryPerMeasurement = 30
+        };
+        var first = new HighTemperatureScenarioRuntime(definition, device.Id, new FixedScenarioRandom());
+        var second = new HighTemperatureScenarioRuntime(definition with
+        {
+            Name = "SecondScenario",
+            AbnormalMinimum = 40,
+            AbnormalMaximum = 44
+        }, device.Id, new FixedScenarioRandom());
+        var operation = harness.Start(device, CreateSequence(device.Id, first, second),
+            harness.Clock.GetTimestamp());
+
+        await harness.Clock.WaitForDelayAsync();
+        harness.Clock.Advance(TelemetryInterval);
+        await harness.Clock.WaitForDelayAsync();
+        harness.Clock.Advance(TelemetryInterval);
+        await harness.Clock.WaitForDelayAsync();
+
+        Assert.Equal(3, harness.Client.Requests.Count);
+        Assert.Equal(ScenarioPhase.Completed, first.Phase);
+        Assert.Equal(ScenarioPhase.Pending, second.Phase);
+        Assert.Null(second.CurrentTemperature);
+        var completionMeasurement = harness.Client.Requests[2].Measurement;
+        Assert.InRange(Assert.IsType<double>(completionMeasurement.NumericValue), 20.0, 24.0);
+        Assert.Equal((InitialUtc + TimeSpan.FromMinutes(2)).UtcDateTime, completionMeasurement.MeasuredAtUtc);
+
+        // A retry sends the same final value even though the queue is now ready for its successor.
+        harness.Clock.Advance(TelemetryInterval);
+        await harness.Clock.WaitForDelayAsync();
+
+        Assert.Equal(4, harness.Client.Requests.Count);
+        Assert.Same(completionMeasurement, harness.Client.Requests[3].Measurement);
+        Assert.Equal(ScenarioPhase.Pending, second.Phase);
+        Assert.Null(second.CurrentTemperature);
+
+        harness.Clock.Advance(TelemetryInterval);
+        await harness.Clock.WaitForDelayAsync();
+
+        Assert.Equal(5, harness.Client.Requests.Count);
+        Assert.False(operation.IsCompleted);
+        var nextMeasurement = harness.Client.Requests[4].Measurement;
+        Assert.NotEqual(completionMeasurement.MeasurementId, nextMeasurement.MeasurementId);
+        Assert.Equal(42.0, Assert.IsType<double>(nextMeasurement.NumericValue));
+        Assert.Equal((InitialUtc + TimeSpan.FromMinutes(4)).UtcDateTime, nextMeasurement.MeasuredAtUtc);
+        Assert.Equal(ScenarioPhase.Active, second.Phase);
+        Assert.Equal(completionMeasurement.NumericValue, first.CurrentTemperature);
+    }
+
+    /// <summary>Creates a device sequence from existing, independently observable runtimes.</summary>
+    /// <param name="deviceId">The device that owns the runtimes.</param>
+    /// <param name="scenarios">The runtimes to execute in planned start order.</param>
+    /// <returns>A sequence used by the production runner overload.</returns>
+    private static DeviceTemperatureScenarioSequence CreateSequence(
+        Guid deviceId, params HighTemperatureScenarioRuntime[] scenarios) =>
+        new(deviceId, scenarios);
+
+    /// <summary>Creates a recoverable scenario with a target of 32 for the fixed random source.</summary>
+    /// <returns>A definition with a one-minute start delay and limited temperature steps.</returns>
+    private static HighTemperatureScenarioDefinition CreateScenarioDefinition() =>
+        new(
+            "HighTemperature",
+            TimeSpan.FromMinutes(1),
+            TimeSpan.FromMinutes(3),
+            new ScenarioTargetDefinition(ScenarioTargetMode.All),
+            true,
+            TimeSpan.FromMinutes(2),
+            30,
+            34,
+            2,
+            2);
+
+    /// <summary>Checks the three unaffected metrics in a nighttime telemetry batch.</summary>
+    /// <param name="requests">The batch containing humidity, door, and light measurements.</param>
+    private static void AssertNormalNonTemperatureMeasurements(IReadOnlyList<TelemetryRequest> requests)
+    {
+        var humidity = Assert.Single(requests.Where(x =>
+            x.Measurement.Metric == SimulatorTelemetryMetric.Humidity)).Measurement;
+        Assert.InRange(Assert.IsType<double>(humidity.NumericValue), 78.0, 82.0);
+        Assert.Null(humidity.StateValue);
+        foreach (var metric in new[] { SimulatorTelemetryMetric.DoorState, SimulatorTelemetryMetric.LightState })
+        {
+            var state = Assert.Single(requests.Where(x => x.Measurement.Metric == metric)).Measurement;
+            Assert.Null(state.NumericValue);
+            Assert.False(Assert.IsType<bool>(state.StateValue));
+        }
+    }
+
+    /// <summary>Supplies a deterministic midpoint for scenario target selection.</summary>
+    private sealed class FixedScenarioRandom : Random
+    {
+        /// <inheritdoc />
+        public override double NextDouble() => 0.5;
+    }
+
     /// <summary>Creates the validated options expected by the runner.</summary>
     /// <param name="maxFailures">The configured consecutive failure limit.</param>
     /// <returns>Options with a positive interval and failure limit.</returns>
@@ -714,6 +1303,21 @@ public sealed class DeviceTelemetryRunnerTests
         public Task Start(SimulatorDeviceResponse device)
         {
             var operation = Runner.RunAsync(device, Cancellation.Token);
+            _operations.Add(operation);
+            return operation;
+        }
+
+        /// <summary>Starts the scenario overload and tracks its task for cleanup.</summary>
+        /// <param name="device">The device passed directly to the runner.</param>
+        /// <param name="scenarioSequence">The optional sequence used for temperature measurements.</param>
+        /// <param name="simulationStartedAt">The shared timestamp obtained from this harness clock.</param>
+        /// <returns>The runner task, including any validation or scenario failure.</returns>
+        public Task Start(
+            SimulatorDeviceResponse device,
+            DeviceTemperatureScenarioSequence? scenarioSequence,
+            long simulationStartedAt)
+        {
+            var operation = Runner.RunAsync(device, scenarioSequence, simulationStartedAt, Cancellation.Token);
             _operations.Add(operation);
             return operation;
         }
