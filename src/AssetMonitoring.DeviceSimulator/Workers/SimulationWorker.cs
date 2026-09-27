@@ -13,8 +13,9 @@ using System.Text.Json;
 namespace AssetMonitoring.DeviceSimulator.Workers;
 
 /// <summary>
-/// Coordinates simulator startup by preparing the simulation plan
-/// and synchronizing the device catalog through the API.
+/// Prepares the simulation plan, device catalog, active devices,
+/// and per-device temperature scenario sequences.
+/// Coordinates concurrent heartbeat and telemetry execution.
 /// </summary>
 public sealed class SimulationWorker : BackgroundService
 {
@@ -27,6 +28,8 @@ public sealed class SimulationWorker : BackgroundService
     private readonly DeviceHeartbeatCoordinator _heartbeatCoordinator;
     private readonly DeviceTelemetryCoordinator _telemetryCoordinator;
     private readonly SimulationPlanResolver _planResolver;
+    private readonly DeviceTemperatureScenarioSequenceFactory _deviceTemperatureScenarioSequence;
+    private readonly TimeProvider _time;
 
     /// <summary>
     /// Initializes a new instance of the
@@ -64,12 +67,21 @@ public sealed class SimulationWorker : BackgroundService
     /// The resolver used to associate simulation scenarios
     /// with compatible prepared devices.
     /// </param>
+    /// <param name="deviceTemperatureScenarioSequence">
+    /// The factory used to create independent temperature scenario
+    /// sequences for selected devices before execution starts.
+    /// </param>
+    /// <param name="time">
+    /// The shared time provider used to capture the simulation start timestamp.
+    /// Must be the same provider used by the telemetry runner
+    /// to calculate elapsed scenario time.
+    /// </param>
     /// <exception cref="ArgumentNullException">
     /// Thrown when any constructor dependency is null.
     /// </exception>
     public SimulationWorker(ILogger<SimulationWorker> logger, SimulationPlanLoader planLoader, IOptions<DeviceSimulatorOptions> options, IHostApplicationLifetime applicationLifetime,
         IDeviceSimulatorApiClient apiClient, DevicePreparationService devicePreparationService, DeviceHeartbeatCoordinator heartbeatCoordinator, DeviceTelemetryCoordinator telemetryCoordinator
-        , SimulationPlanResolver planResolver)
+        , SimulationPlanResolver planResolver, DeviceTemperatureScenarioSequenceFactory deviceTemperatureScenarioSequence, TimeProvider time)
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(planLoader);
@@ -80,6 +92,8 @@ public sealed class SimulationWorker : BackgroundService
         ArgumentNullException.ThrowIfNull(heartbeatCoordinator);
         ArgumentNullException.ThrowIfNull(telemetryCoordinator);
         ArgumentNullException.ThrowIfNull(planResolver);
+        ArgumentNullException.ThrowIfNull(deviceTemperatureScenarioSequence);
+        ArgumentNullException.ThrowIfNull(time);
 
         _logger = logger;
         _planLoader = planLoader;
@@ -90,21 +104,39 @@ public sealed class SimulationWorker : BackgroundService
         _heartbeatCoordinator = heartbeatCoordinator;
         _telemetryCoordinator = telemetryCoordinator;
         _planResolver = planResolver;
+        _deviceTemperatureScenarioSequence = deviceTemperatureScenarioSequence;
+        _time = time;
     }
 
     /// <summary>
-    /// Loads and validates the selected simulation plan, synchronizes
-    /// the device catalog, retrieves and prepares devices,
-    /// and runs their heartbeat loops.
-    /// Requests application shutdown when startup preparation fails,
-    /// no eligible devices are available, or all heartbeat loops end
-    /// without host cancellation.
+    /// Loads and validates the simulation plan, synchronizes the device catalog,
+    /// prepares eligible devices, resolves scenario targets, and creates
+    /// per-device temperature scenario sequences.
+    /// Runs heartbeat and telemetry loops concurrently.
     /// </summary>
+    /// <remarks>
+    /// Temperature scenario sequences are created once before either
+    /// runtime group starts. The plan seed, when provided, initializes
+    /// the random source used to select abnormal temperature targets.
+    ///
+    /// A shared simulation start timestamp is captured after preparation
+    /// and passed to the telemetry coordinator for all device loops.
+    ///
+    /// Handled startup failures or the absence of eligible devices
+    /// request application shutdown. Unhandled preparation exceptions
+    /// propagate to the host.
+    ///
+    /// After both runtime groups have ended, application shutdown is
+    /// requested unless host cancellation has already been requested.
+    /// </remarks>
     /// <param name="stoppingToken">
-    /// A token that signals that the host is stopping.
+    /// A token that signals host shutdown and is forwarded to asynchronous
+    /// preparation operations and both runtime coordinators.
     /// </param>
     /// <returns>
-    /// A task representing simulation preparation and heartbeat execution.
+    /// A task representing startup preparation and the lifetime of both
+    /// runtime groups. Completes when preparation stops early or all
+    /// heartbeat and telemetry loops have ended.
     /// </returns>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -138,9 +170,19 @@ public sealed class SimulationWorker : BackgroundService
             return;
         }
 
+        var random = plan.Seed.HasValue ? new Random(plan.Seed.Value) : new Random();
+        var sequencesByDevice = TryCreateTemperatureScenarioSequences(resolvedScenarios, random);
+        if (sequencesByDevice is null)
+        {
+            return;
+        }
+
+        var simulationStartedAt = _time.GetTimestamp();
+
         await Task.WhenAll(
             _heartbeatCoordinator.RunAsync(preparedDevices, stoppingToken),
-            _telemetryCoordinator.RunAsync(preparedDevices, stoppingToken));
+            _telemetryCoordinator.RunAsync(preparedDevices, sequencesByDevice, simulationStartedAt, stoppingToken));
+
         if (!stoppingToken.IsCancellationRequested)
         {
             _logger.LogWarning("All device heartbeat and telemetry loops have ended. Simulation will stop.");
@@ -361,7 +403,7 @@ public sealed class SimulationWorker : BackgroundService
     /// The resolved scenarios, or null when resolution fails.
     /// An empty collection when the plan contains no scenarios.
     /// </returns>
-    private IReadOnlyList<ResolvedScenario?> TryResolveScenarios(SimulationPlanDefinition plan, IReadOnlyList<SimulatorDeviceResponse> devices)
+    private IReadOnlyList<ResolvedScenario>? TryResolveScenarios(SimulationPlanDefinition plan, IReadOnlyList<SimulatorDeviceResponse> devices)
     {
         try
         {
@@ -376,6 +418,52 @@ public sealed class SimulationWorker : BackgroundService
         {
             _logger.LogError(exception, "Simulation plan {PlanName} could not be resolved.",
                 plan.Name);
+
+            _applicationLifetime.StopApplication();
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Attempts to create per-device temperature scenario sequences
+    /// from resolved scenarios.
+    /// Logs the preparation result and requests application shutdown
+    /// when an expected creation failure occurs.
+    /// </summary>
+    /// <param name="resolvedScenarios">
+    /// The resolved scenarios in plan order, containing validated
+    /// definitions and the devices selected for each scenario.
+    /// </param>
+    /// <param name="random">
+    /// The random source used to select abnormal temperature targets
+    /// while creating independent scenario runtimes.
+    /// </param>
+    /// <returns>
+    /// A dictionary of temperature scenario sequences keyed by device
+    /// identifier, or null when an expected creation failure occurs.
+    /// An empty dictionary is a successful result when no
+    /// scenario-device pairs exist.
+    /// </returns>
+    /// <remarks>
+    /// Call once during startup, before starting heartbeat or telemetry loops.
+    /// Unexpected exceptions propagate to the caller.
+    /// </remarks>
+    private IReadOnlyDictionary<Guid, DeviceTemperatureScenarioSequence>? TryCreateTemperatureScenarioSequences(IReadOnlyList<ResolvedScenario> resolvedScenarios, Random random)
+    {
+        try
+        {
+            var result = _deviceTemperatureScenarioSequence.Create(resolvedScenarios, random);
+            _logger.LogInformation("Temperature scenario preparation completed. " + "Resolved scenarios: {ScenarioCount}, devices with sequences: {DeviceCount}.",
+                resolvedScenarios.Count,
+                result.Count);
+            return result;
+        }
+        catch (Exception exception) when (exception
+            is ArgumentException
+            or InvalidOperationException
+            or NotSupportedException)
+        {
+            _logger.LogError(exception, "Temperature scenario sequences could not be created. " + "Simulation startup will stop.");
 
             _applicationLifetime.StopApplication();
             return null;

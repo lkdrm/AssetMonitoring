@@ -1,8 +1,12 @@
+using AssetMonitoring.DeviceSimulator.Api;
 using AssetMonitoring.DeviceSimulator.Configuration;
 using AssetMonitoring.DeviceSimulator.Configuration.Validation;
 using AssetMonitoring.DeviceSimulator.Infrastructure;
 using AssetMonitoring.DeviceSimulator.Interfaces;
 using AssetMonitoring.DeviceSimulator.Load;
+using AssetMonitoring.DeviceSimulator.Preparation;
+using AssetMonitoring.DeviceSimulator.Runtime;
+using AssetMonitoring.DeviceSimulator.Workers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
@@ -86,6 +90,53 @@ public sealed class DeviceSimulatorDependencyInjectionTests
         AssertSingletonAcrossScopes<SimulationPlanLoader>();
     }
 
+    /// <summary>Verifies that preparation and runtime services can be constructed together.</summary>
+    [Fact]
+    public void AddDeviceSimulatorResolvesPreparationAndRuntimeServices()
+    {
+        using var provider = CreateServiceProvider();
+
+        Assert.IsType<DeviceSimulatorApiClient>(provider.GetRequiredService<IDeviceSimulatorApiClient>());
+        Assert.IsType<DevicePreparationService>(provider.GetRequiredService<DevicePreparationService>());
+        Assert.IsType<ScenarioTargetResolver>(provider.GetRequiredService<ScenarioTargetResolver>());
+        Assert.IsType<SimulationPlanResolver>(provider.GetRequiredService<SimulationPlanResolver>());
+        Assert.IsType<DeviceTemperatureScenarioSequenceFactory>(
+            provider.GetRequiredService<DeviceTemperatureScenarioSequenceFactory>());
+        Assert.IsType<NormalTelemetryGenerator>(provider.GetRequiredService<NormalTelemetryGenerator>());
+        Assert.IsType<DeviceHeartbeatRunner>(provider.GetRequiredService<DeviceHeartbeatRunner>());
+        Assert.IsType<DeviceHeartbeatCoordinator>(provider.GetRequiredService<DeviceHeartbeatCoordinator>());
+        Assert.IsType<DeviceTelemetryRunner>(provider.GetRequiredService<DeviceTelemetryRunner>());
+        Assert.IsType<DeviceTelemetryCoordinator>(provider.GetRequiredService<DeviceTelemetryCoordinator>());
+    }
+
+    /// <summary>Verifies that the stateless sequence factory is shared across resolutions and scopes.</summary>
+    [Fact]
+    public void AddDeviceSimulatorSharesSequenceFactoryAcrossScopes()
+    {
+        AssertSingletonAcrossScopes<DeviceTemperatureScenarioSequenceFactory>();
+    }
+
+    /// <summary>Verifies that worker and runner dependencies resolve one shared time provider.</summary>
+    [Fact]
+    public void AddDeviceSimulatorSharesTimeProviderAcrossScopes()
+    {
+        AssertSingletonAcrossScopes<TimeProvider>();
+    }
+
+    /// <summary>
+    /// Verifies construction of the hosted worker with its sequence factory,
+    /// shared time provider, and runtime coordinators without starting simulation.
+    /// </summary>
+    [Fact]
+    public void AddDeviceSimulatorResolvesHostedWorkerWithScenarioDependencies()
+    {
+        using var provider = CreateServiceProvider();
+
+        var service = Assert.Single(provider.GetServices<IHostedService>());
+
+        Assert.IsType<SimulationWorker>(service);
+    }
+
     /// <summary>
     /// Builds a validated provider with the environment normally supplied by the host.
     /// </summary>
@@ -95,7 +146,15 @@ public sealed class DeviceSimulatorDependencyInjectionTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<IHostEnvironment>(new TestHostEnvironment());
+        services.AddSingleton<IHostApplicationLifetime>(new TestApplicationLifetime());
+        services.Configure<DeviceSimulatorOptions>(options =>
+        {
+            options.PlanName = "normal-operation";
+            options.ApiBaseAddress = "https://localhost:7056/";
+            options.WarehouseTimeZoneId = "UTC";
+        });
         services.AddDeviceSimulator();
+        services.AddHostedService<SimulationWorker>();
 
         return services.BuildServiceProvider(new ServiceProviderOptions
         {
@@ -120,6 +179,24 @@ public sealed class DeviceSimulatorDependencyInjectionTests
         Assert.Same(instance, provider.GetRequiredService<TService>());
         Assert.Same(instance, firstScope.ServiceProvider.GetRequiredService<TService>());
         Assert.Same(instance, secondScope.ServiceProvider.GetRequiredService<TService>());
+    }
+
+    /// <summary>Supplies the host lifetime dependency without starting a real host.</summary>
+    private sealed class TestApplicationLifetime : IHostApplicationLifetime
+    {
+        /// <inheritdoc />
+        public CancellationToken ApplicationStarted => CancellationToken.None;
+
+        /// <inheritdoc />
+        public CancellationToken ApplicationStopping => CancellationToken.None;
+
+        /// <inheritdoc />
+        public CancellationToken ApplicationStopped => CancellationToken.None;
+
+        /// <inheritdoc />
+        public void StopApplication()
+        {
+        }
     }
 
     /// <summary>

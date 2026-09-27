@@ -21,9 +21,9 @@ namespace AssetMonitoring.DeviceSimulator.Tests.Workers;
 
 /// <summary>
 /// Verifies simulation plan loading, catalog synchronization, device retrieval,
-/// device preparation, scenario resolution, concurrent heartbeat and telemetry
-/// execution, shutdown requests, and cancellation. Uses production services
-/// with a fake API and controlled clocks.
+/// device preparation, scenario resolution, sequence preparation, shared scenario
+/// time, concurrent heartbeat and telemetry execution, shutdown, and cancellation.
+/// Uses production services with a fake API and controlled clocks.
 /// </summary>
 public sealed class SimulationWorkerTests
 {
@@ -37,7 +37,7 @@ public sealed class SimulationWorkerTests
     /// receives a cancellable token, and is prepared before catalog synchronization.
     /// Devices are retrieved after synchronization and prepared before readiness
     /// is reported with updated lifecycle values and structured device details.
-    /// Both runtime groups start only after scenario resolution and keep the
+    /// Both runtime groups start only after sequence preparation and keep the
     /// worker running, including when the plan contains no scenarios.
     /// </summary>
     [Fact]
@@ -50,7 +50,7 @@ public sealed class SimulationWorkerTests
         var catalogWasSynchronizedBeforeRetrieval = false;
         var devicesWereRetrievedBeforeActivation = false;
         var preparationWasCompletedBeforeHeartbeat = new ConcurrentQueue<bool>();
-        var resolutionWasCompletedBeforeRuntime = new ConcurrentQueue<bool>();
+        var sequencesWerePreparedBeforeRuntime = new ConcurrentQueue<bool>();
         var devices = CreateAvailableDevices();
         var apiClient = new StubDeviceSimulatorApiClient(_ =>
         {
@@ -76,13 +76,15 @@ public sealed class SimulationWorkerTests
         {
             preparationWasCompletedBeforeHeartbeat.Enqueue(
                 logger.Entries.Count(entry => entry.Properties.ContainsKey("Lifecycle")) == devices.Count);
-            resolutionWasCompletedBeforeRuntime.Enqueue(logger.Entries.Any(entry =>
-                entry.Properties.TryGetValue("ScenarioCount", out var count) && Equals(count, 0)));
+            sequencesWerePreparedBeforeRuntime.Enqueue(logger.Entries.Any(entry =>
+                entry.Properties.ContainsKey("DeviceCount")
+                && entry.Properties.TryGetValue("ScenarioCount", out var count) && Equals(count, 0)));
             return WaitForHeartbeatCancellationAsync(deviceId, token);
         }, (_, measurement, token) =>
         {
-            resolutionWasCompletedBeforeRuntime.Enqueue(logger.Entries.Any(entry =>
-                entry.Properties.TryGetValue("ScenarioCount", out var count) && Equals(count, 0)));
+            sequencesWerePreparedBeforeRuntime.Enqueue(logger.Entries.Any(entry =>
+                entry.Properties.ContainsKey("DeviceCount")
+                && entry.Properties.TryGetValue("ScenarioCount", out var count) && Equals(count, 0)));
             return WaitForTelemetryCancellationAsync(measurement, token);
         });
         using var worker = CreateWorker(reader, logger, lifetime, apiClient, "selected-plan");
@@ -104,8 +106,8 @@ public sealed class SimulationWorkerTests
         Assert.Equal(apiClient.LastGetDevicesCancellationToken, activation.CancellationToken);
         Assert.Equal(devices.Count, preparationWasCompletedBeforeHeartbeat.Count);
         Assert.All(preparationWasCompletedBeforeHeartbeat, completed => Assert.True(completed));
-        Assert.Equal(devices.Count * 2, resolutionWasCompletedBeforeRuntime.Count);
-        Assert.All(resolutionWasCompletedBeforeRuntime, completed => Assert.True(completed));
+        Assert.Equal(devices.Count * 2, sequencesWerePreparedBeforeRuntime.Count);
+        Assert.All(sequencesWerePreparedBeforeRuntime, completed => Assert.True(completed));
         AssertHeartbeatDevices(apiClient, devices);
         AssertTelemetryDevices(apiClient, devices);
         Assert.All(apiClient.HeartbeatRequests, request =>
@@ -120,7 +122,7 @@ public sealed class SimulationWorkerTests
         });
         Assert.Equal(0, lifetime.StopApplicationCallCount);
 
-        Assert.Equal(7, logger.Entries.Count);
+        Assert.Equal(8, logger.Entries.Count);
         Assert.All(logger.Entries, entry =>
         {
             Assert.Equal(LogLevel.Information, entry.Level);
@@ -136,6 +138,7 @@ public sealed class SimulationWorkerTests
         Assert.Equal(2, logger.Entries[2].Properties["DeviceCount"]);
         AssertPreparedDevicesAreLogged(logger, devices);
         AssertResolvedPlanIsLogged(logger, CreateValidPlan());
+        AssertSequencesPreparedIsLogged(logger, 0, 0);
     }
 
     /// <summary>
@@ -353,7 +356,7 @@ public sealed class SimulationWorkerTests
         Assert.Equal(1, apiClient.CallCount);
         Assert.Equal(1, apiClient.GetDevicesCallCount);
         Assert.Equal(0, lifetime.StopApplicationCallCount);
-        Assert.Equal(7, logger.Entries.Count);
+        Assert.Equal(8, logger.Entries.Count);
         Assert.All(logger.Entries, entry => Assert.Equal(LogLevel.Information, entry.Level));
         var synchronization = logger.Entries[1];
         Assert.Equal(0, synchronization.Properties["Created"]);
@@ -736,7 +739,8 @@ public sealed class SimulationWorkerTests
             new SimulationWorker(logger, loader, options, lifetime, apiClient, null!,
                 CreateHeartbeatCoordinator(apiClient),
                 CreateTelemetryCoordinator(apiClient),
-                new SimulationPlanResolver(new ScenarioTargetResolver())));
+                new SimulationPlanResolver(new ScenarioTargetResolver()),
+                new DeviceTemperatureScenarioSequenceFactory(), new FakeTimeProvider()));
 
         Assert.Equal("devicePreparationService", exception.ParamName);
     }
@@ -772,7 +776,7 @@ public sealed class SimulationWorkerTests
         Assert.Equal(0, lifetime.StopApplicationCallCount);
         Assert.Equal(new[] { devices[1].Id, devices[3].Id },
             apiClient.ActivationRequests.Select(request => request.DeviceId).ToArray());
-        Assert.Equal(8, logger.Entries.Count);
+        Assert.Equal(9, logger.Entries.Count);
         Assert.All(logger.Entries, entry => Assert.Equal(LogLevel.Information, entry.Level));
         Assert.Equal(5, logger.Entries[2].Properties["DeviceCount"]);
         AssertPreparedDevicesAreLogged(logger, new[] { devices[1], devices[2], devices[3] });
@@ -848,7 +852,7 @@ public sealed class SimulationWorkerTests
         Assert.Equal(1, apiClient.GetDevicesCallCount);
         Assert.Empty(apiClient.ActivationRequests);
         Assert.Equal(0, lifetime.StopApplicationCallCount);
-        Assert.Equal(7, logger.Entries.Count);
+        Assert.Equal(8, logger.Entries.Count);
         Assert.All(logger.Entries, entry => Assert.Equal(LogLevel.Information, entry.Level));
         AssertPreparedDevicesAreLogged(logger, devices);
         AssertHeartbeatDevices(apiClient, devices);
@@ -1094,7 +1098,7 @@ public sealed class SimulationWorkerTests
             Assert.Equal(devices.Select(device => device.Id).ToArray(),
                 apiClient.ActivationRequests.Select(request => request.DeviceId).ToArray());
             Assert.Equal(0, lifetime.StopApplicationCallCount);
-            Assert.Equal(7, logger.Entries.Count);
+            Assert.Equal(8, logger.Entries.Count);
             AssertPreparedDevicesAreLogged(logger, devices);
             AssertHeartbeatDevices(apiClient, devices);
             AssertTelemetryDevices(apiClient, devices);
@@ -1119,7 +1123,8 @@ public sealed class SimulationWorkerTests
                 new RecordingApplicationLifetime(), apiClient,
                 new DevicePreparationService(apiClient), null!,
                 CreateTelemetryCoordinator(apiClient),
-                new SimulationPlanResolver(new ScenarioTargetResolver())));
+                new SimulationPlanResolver(new ScenarioTargetResolver()),
+                new DeviceTemperatureScenarioSequenceFactory(), new FakeTimeProvider()));
 
         Assert.Equal("heartbeatCoordinator", exception.ParamName);
     }
@@ -1136,7 +1141,8 @@ public sealed class SimulationWorkerTests
             new SimulationWorker(new RecordingLogger(), loader, options,
                 new RecordingApplicationLifetime(), apiClient,
                 new DevicePreparationService(apiClient), CreateHeartbeatCoordinator(apiClient),
-                null!, new SimulationPlanResolver(new ScenarioTargetResolver())));
+                null!, new SimulationPlanResolver(new ScenarioTargetResolver()),
+                new DeviceTemperatureScenarioSequenceFactory(), new FakeTimeProvider()));
 
         Assert.Equal("telemetryCoordinator", exception.ParamName);
     }
@@ -1153,7 +1159,8 @@ public sealed class SimulationWorkerTests
             new SimulationWorker(new RecordingLogger(), loader, options,
                 new RecordingApplicationLifetime(), apiClient,
                 new DevicePreparationService(apiClient), CreateHeartbeatCoordinator(apiClient),
-                CreateTelemetryCoordinator(apiClient), null!));
+                CreateTelemetryCoordinator(apiClient), null!,
+                new DeviceTemperatureScenarioSequenceFactory(), new FakeTimeProvider()));
 
         Assert.Equal("planResolver", exception.ParamName);
     }
@@ -1186,19 +1193,21 @@ public sealed class SimulationWorkerTests
         var reader = new StubSimulationPlanReader((_, _) => Task.FromResult(plan));
         var logger = new RecordingLogger();
         var lifetime = new RecordingApplicationLifetime();
-        var resolutionBeforeRequests = new ConcurrentQueue<bool>();
+        var sequencesPreparedBeforeRequests = new ConcurrentQueue<bool>();
         var apiClient = new StubDeviceSimulatorApiClient(
             getDevices: _ => Task.FromResult<IReadOnlyList<SimulatorDeviceResponse>>(devices),
             heartbeat: (id, token) =>
             {
-                resolutionBeforeRequests.Enqueue(logger.Entries.Any(entry =>
-                    entry.Properties.TryGetValue("ScenarioCount", out var count) && Equals(count, 2)));
+                sequencesPreparedBeforeRequests.Enqueue(logger.Entries.Any(entry =>
+                    entry.Properties.ContainsKey("DeviceCount")
+                    && entry.Properties.TryGetValue("ScenarioCount", out var count) && Equals(count, 2)));
                 return WaitForHeartbeatCancellationAsync(id, token);
             },
             telemetry: (_, measurement, token) =>
             {
-                resolutionBeforeRequests.Enqueue(logger.Entries.Any(entry =>
-                    entry.Properties.TryGetValue("ScenarioCount", out var count) && Equals(count, 2)));
+                sequencesPreparedBeforeRequests.Enqueue(logger.Entries.Any(entry =>
+                    entry.Properties.ContainsKey("DeviceCount")
+                    && entry.Properties.TryGetValue("ScenarioCount", out var count) && Equals(count, 2)));
                 return WaitForTelemetryCancellationAsync(measurement, token);
             });
         using var worker = CreateWorker(reader, logger, lifetime, apiClient, "selected-file");
@@ -1208,8 +1217,9 @@ public sealed class SimulationWorkerTests
         Assert.Equal(devices[1].Id, Assert.Single(apiClient.ActivationRequests).DeviceId);
         Assert.Equal("selected-file", reader.LastPlanName);
         AssertResolvedPlanIsLogged(logger, plan);
-        Assert.Equal(4, resolutionBeforeRequests.Count);
-        Assert.All(resolutionBeforeRequests, resolved => Assert.True(resolved));
+        AssertSequencesPreparedIsLogged(logger, 2, 2);
+        Assert.Equal(4, sequencesPreparedBeforeRequests.Count);
+        Assert.All(sequencesPreparedBeforeRequests, resolved => Assert.True(resolved));
         var prepared = new[] { devices[1], devices[2] };
         AssertPreparedDevicesAreLogged(logger, prepared);
         AssertHeartbeatDevices(apiClient, prepared);
@@ -1385,7 +1395,7 @@ public sealed class SimulationWorkerTests
         Assert.True(warningWasLoggedBeforeShutdown);
         Assert.Equal(1, lifetime.StopApplicationCallCount);
         Assert.False(reader.LastCancellationToken.IsCancellationRequested);
-        Assert.Equal(8, logger.Entries.Count);
+        Assert.Equal(9, logger.Entries.Count);
         var warning = Assert.Single(logger.Entries.Where(entry => entry.Level == LogLevel.Warning));
         Assert.Null(warning.Exception);
         Assert.Equal("All device heartbeat and telemetry loops have ended. Simulation will stop.", warning.Message);
@@ -1544,6 +1554,341 @@ public sealed class SimulationWorkerTests
         }
     }
 
+    /// <summary>Verifies that sequence preparation and shared time dependencies are required.</summary>
+    /// <param name="dependency">The new dependency omitted from construction.</param>
+    [Theory]
+    [InlineData("deviceTemperatureScenarioSequence")]
+    [InlineData("time")]
+    public void ConstructorWithNullScenarioPreparationDependencyThrowsArgumentNullException(string dependency)
+    {
+        var client = new StubDeviceSimulatorApiClient();
+        var loader = new SimulationPlanLoader(new StubSimulationPlanReader(), new SimulationPlanValidator());
+
+        var exception = Assert.Throws<ArgumentNullException>(() => new SimulationWorker(
+            new RecordingLogger(), loader,
+            Options.Create(new DeviceSimulatorOptions { PlanName = "normal-operation" }),
+            new RecordingApplicationLifetime(), client, new DevicePreparationService(client),
+            CreateHeartbeatCoordinator(client), CreateTelemetryCoordinator(client),
+            new SimulationPlanResolver(new ScenarioTargetResolver()),
+            dependency == "deviceTemperatureScenarioSequence" ? null! : new DeviceTemperatureScenarioSequenceFactory(),
+            dependency == "time" ? null! : new FakeTimeProvider()));
+
+        Assert.Equal(dependency, exception.ParamName);
+    }
+
+    /// <summary>
+    /// Verifies that resolved targets receive abnormal temperatures after activation,
+    /// while untargeted devices and non-temperature metrics retain normal telemetry.
+    /// </summary>
+    /// <param name="allCompatible">Whether all compatible devices or one specific device is selected.</param>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExecuteAsyncAppliesPreparedSequencesOnlyToResolvedTargets(bool allCompatible)
+    {
+        var devices = new[]
+        {
+            CreatePreparationDevice(1, SimulatorDeviceLifecycle.Active) with
+            { Capabilities = new[] { SimulatorDeviceCapability.Temperature } },
+            CreatePreparationDevice(2, SimulatorDeviceLifecycle.Registered) with
+            { Capabilities = new[] { SimulatorDeviceCapability.Temperature } },
+            CreatePreparationDevice(3, SimulatorDeviceLifecycle.Active) with
+            { Capabilities = new[] { SimulatorDeviceCapability.Humidity } }
+        };
+        var target = allCompatible
+            ? new ScenarioTargetDefinition(ScenarioTargetMode.All)
+            : new ScenarioTargetDefinition(ScenarioTargetMode.SpecificDevice, DeviceCode: devices[1].Code);
+        var scenario = CreateHighTemperatureScenario(target) with
+        {
+            StartsAfter = TimeSpan.Zero,
+            AbnormalMinimum = 40,
+            AbnormalMaximum = 50,
+            MaximumRisePerMeasurement = 100
+        };
+        var plan = CreateValidPlan() with { Scenarios = new ScenarioDefinition[] { scenario } };
+        var reader = new StubSimulationPlanReader((_, _) => Task.FromResult(plan));
+        var logger = new RecordingLogger();
+        var lifetime = new RecordingApplicationLifetime();
+        var client = new StubDeviceSimulatorApiClient(
+            getDevices: _ => Task.FromResult<IReadOnlyList<SimulatorDeviceResponse>>(devices));
+        using var worker = CreateWorker(reader, logger, lifetime, client);
+
+        await RunUntilRuntimeLoopsAndStopAsync(worker, client, devices.Length);
+
+        var measurements = client.TelemetryRequests.ToDictionary(request => request.DeviceId,
+            request => request.Measurement);
+        Assert.InRange(measurements[devices[0].Id].NumericValue!.Value,
+            allCompatible ? 40d : 20d, allCompatible ? 50d : 24d);
+        Assert.InRange(measurements[devices[1].Id].NumericValue!.Value, 40d, 50d);
+        Assert.Equal(SimulatorTelemetryMetric.Humidity, measurements[devices[2].Id].Metric);
+        Assert.InRange(measurements[devices[2].Id].NumericValue!.Value, 78d, 82d);
+        Assert.Equal(devices[1].Id, Assert.Single(client.ActivationRequests).DeviceId);
+        AssertHeartbeatDevices(client, devices);
+        AssertSequencesPreparedIsLogged(logger, 1, allCompatible ? 2 : 1);
+        Assert.Equal(0, lifetime.StopApplicationCallCount);
+    }
+
+    /// <summary>
+    /// Verifies that the plan seed initializes temperature target selection in
+    /// resolved-device order, and omitting the seed still permits scenario startup.
+    /// </summary>
+    /// <param name="seed">The optional seed used to prepare abnormal temperatures.</param>
+    [Theory]
+    [InlineData(42)]
+    [InlineData(-17)]
+    [InlineData(null)]
+    public async Task ExecuteAsyncCreatesTemperatureTargetsUsingOptionalPlanSeed(int? seed)
+    {
+        var devices = new[]
+        {
+            CreatePreparationDevice(2, SimulatorDeviceLifecycle.Active) with
+            { Capabilities = new[] { SimulatorDeviceCapability.Temperature } },
+            CreatePreparationDevice(1, SimulatorDeviceLifecycle.Active) with
+            { Capabilities = new[] { SimulatorDeviceCapability.Temperature } }
+        };
+        var scenario = CreateHighTemperatureScenario(new ScenarioTargetDefinition(ScenarioTargetMode.All)) with
+        {
+            StartsAfter = TimeSpan.Zero,
+            AbnormalMinimum = 40,
+            AbnormalMaximum = 50,
+            MaximumRisePerMeasurement = 100
+        };
+        var plan = CreateValidPlan() with { Seed = seed, Scenarios = new ScenarioDefinition[] { scenario } };
+        var logger = new RecordingLogger();
+        var lifetime = new RecordingApplicationLifetime();
+        var client = new StubDeviceSimulatorApiClient(
+            getDevices: _ => Task.FromResult<IReadOnlyList<SimulatorDeviceResponse>>(devices));
+        using var worker = CreateWorker(new StubSimulationPlanReader((_, _) => Task.FromResult(plan)),
+            logger, lifetime, client);
+
+        await RunUntilRuntimeLoopsAndStopAsync(worker, client, devices.Length);
+
+        var measurements = client.TelemetryRequests.ToDictionary(request => request.DeviceId,
+            request => request.Measurement.NumericValue!.Value);
+        var expectedRandom = seed.HasValue ? new Random(seed.Value) : null;
+        foreach (var device in devices.OrderBy(device => device.Code, StringComparer.Ordinal))
+        {
+            var temperature = measurements[device.Id];
+            Assert.InRange(temperature, 40d, 50d);
+            if (expectedRandom is not null)
+            {
+                Assert.Equal(40 + expectedRandom.NextDouble() * 10, temperature);
+            }
+        }
+        AssertSequencesPreparedIsLogged(logger, 1, devices.Length);
+        Assert.Equal(0, lifetime.StopApplicationCallCount);
+    }
+
+    /// <summary>
+    /// Verifies that preparation time is excluded from scenario elapsed time,
+    /// while time spent starting heartbeats is included in the shared timeline.
+    /// The controlled timestamp uses a different origin from UTC date-time ticks.
+    /// </summary>
+    /// <param name="advanceDuringHeartbeat">Whether heartbeat startup advances the clock past the scenario start.</param>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExecuteAsyncCapturesScenarioStartAfterPreparationAndBeforeRuntime(bool advanceDuringHeartbeat)
+    {
+        var clock = new ObservedTimeProvider();
+        var device = CreatePreparationDevice(1, SimulatorDeviceLifecycle.Active) with
+        { Capabilities = new[] { SimulatorDeviceCapability.Temperature } };
+        var scenario = CreateHighTemperatureScenario(new ScenarioTargetDefinition(ScenarioTargetMode.All)) with
+        { AbnormalMinimum = 40, AbnormalMaximum = 50, MaximumRisePerMeasurement = 100 };
+        var plan = CreateValidPlan() with { Scenarios = new ScenarioDefinition[] { scenario } };
+        var logger = new RecordingLogger();
+        var lifetime = new RecordingApplicationLifetime();
+        var client = new StubDeviceSimulatorApiClient(
+            getDevices: _ =>
+            {
+                clock.Advance(TimeSpan.FromHours(1));
+                return Task.FromResult<IReadOnlyList<SimulatorDeviceResponse>>(new[] { device });
+            },
+            heartbeat: (id, token) =>
+            {
+                if (advanceDuringHeartbeat)
+                {
+                    clock.Advance(TimeSpan.FromMinutes(2));
+                }
+                return WaitForHeartbeatCancellationAsync(id, token);
+            });
+        using var worker = CreateWorker(new StubSimulationPlanReader((_, _) => Task.FromResult(plan)),
+            logger, lifetime, client, time: clock);
+
+        await RunUntilRuntimeLoopsAndStopAsync(worker, client, 1);
+
+        var temperature = Assert.Single(client.TelemetryRequests).Measurement.NumericValue!.Value;
+        Assert.InRange(temperature, advanceDuringHeartbeat ? 40d : 20d,
+            advanceDuringHeartbeat ? 50d : 24d);
+        Assert.Equal(0, lifetime.StopApplicationCallCount);
+        Assert.DoesNotContain(logger.Entries, entry => entry.Level == LogLevel.Error);
+    }
+
+    /// <summary>
+    /// Verifies that a creation failure after one valid scenario-device pair
+    /// is logged before shutdown and prevents both runtime groups from starting.
+    /// </summary>
+    [Fact]
+    public async Task ExecuteAsyncWithSequenceCreationFailureLogsErrorAndPreventsAllRuntimeRequests()
+    {
+        var devices = new[]
+        {
+            CreatePreparationDevice(1, SimulatorDeviceLifecycle.Active),
+            CreatePreparationDevice(2, SimulatorDeviceLifecycle.Active) with { Id = Guid.Empty }
+        };
+        var scenario = CreateHighTemperatureScenario(new ScenarioTargetDefinition(ScenarioTargetMode.All));
+        var plan = CreateValidPlan() with { Scenarios = new ScenarioDefinition[] { scenario } };
+        Assert.True(new SimulationPlanValidator().Validate(plan).IsValid);
+        var logger = new RecordingLogger();
+        var creationErrorLoggedBeforeShutdown = false;
+        var lifetime = new RecordingApplicationLifetime(() => creationErrorLoggedBeforeShutdown =
+            logger.Entries.Any(entry => entry.Level == LogLevel.Error && entry.Exception is ArgumentException));
+        var client = new StubDeviceSimulatorApiClient(
+            getDevices: _ => Task.FromResult<IReadOnlyList<SimulatorDeviceResponse>>(devices));
+        using var worker = CreateWorker(new StubSimulationPlanReader((_, _) => Task.FromResult(plan)),
+            logger, lifetime, client);
+
+        await RunWorkerAsync(worker);
+
+        AssertResolvedPlanIsLogged(logger, plan);
+        AssertNoRuntimeRequests(client);
+        Assert.True(creationErrorLoggedBeforeShutdown);
+        Assert.Equal(1, lifetime.StopApplicationCallCount);
+        var error = Assert.Single(logger.Entries.Where(entry => entry.Level == LogLevel.Error));
+        Assert.Equal("deviceId", Assert.IsType<ArgumentException>(error.Exception).ParamName);
+        Assert.Equal("Temperature scenario sequences could not be created. Simulation startup will stop.",
+            error.Message);
+        Assert.Equal(error, logger.Entries[^1]);
+        Assert.DoesNotContain(logger.Entries, entry =>
+            entry.Properties.ContainsKey("ScenarioCount") && entry.Properties.ContainsKey("DeviceCount"));
+    }
+
+    /// <summary>
+    /// Verifies that multiple resolved scenarios for one device reach the runner
+    /// as one persistent queue, preserve plan order, and wait for recovery.
+    /// </summary>
+    [Fact]
+    public async Task ExecuteAsyncRunsQueuedScenariosForTheSameDeviceAcrossTelemetryCycles()
+    {
+        var clock = new ObservedTimeProvider();
+        var device = CreatePreparationDevice(1, SimulatorDeviceLifecycle.Active) with
+        { Capabilities = new[] { SimulatorDeviceCapability.Temperature } };
+        var first = CreateHighTemperatureScenario(new ScenarioTargetDefinition(ScenarioTargetMode.All)) with
+        {
+            Name = "FirstTemperatureScenario",
+            StartsAfter = TimeSpan.Zero,
+            Duration = TimeSpan.FromMinutes(1),
+            RecoveryDuration = TimeSpan.FromMinutes(1),
+            AbnormalMinimum = 40,
+            AbnormalMaximum = 41,
+            MaximumRisePerMeasurement = 100,
+            MaximumRecoveryPerMeasurement = 100
+        };
+        var second = first with
+        { Name = "SecondTemperatureScenario", AbnormalMinimum = 60, AbnormalMaximum = 61 };
+        var plan = CreateValidPlan() with { Scenarios = new ScenarioDefinition[] { first, second } };
+        var logger = new RecordingLogger();
+        var lifetime = new RecordingApplicationLifetime();
+        var client = new StubDeviceSimulatorApiClient(
+            getDevices: _ => Task.FromResult<IReadOnlyList<SimulatorDeviceResponse>>(new[] { device }),
+            telemetry: (_, measurement, _) =>
+                Task.FromResult(new SimulatorTelemetryRecordingResponse(measurement.MeasurementId, true)));
+        using var worker = CreateWorker(new StubSimulationPlanReader((_, _) => Task.FromResult(plan)),
+            logger, lifetime, client, time: clock);
+
+        await worker.StartAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            await clock.WaitForDelayAsync();
+            for (var index = 0; index < 3; index++)
+            {
+                clock.Advance(TimeSpan.FromMinutes(1));
+                await clock.WaitForDelayAsync();
+            }
+
+            var requests = client.TelemetryRequests;
+            Assert.Equal(4, requests.Count);
+            Assert.InRange(requests[0].Measurement.NumericValue!.Value, 40d, 41d);
+            Assert.Equal(requests[0].Measurement.NumericValue, requests[1].Measurement.NumericValue);
+            Assert.InRange(requests[2].Measurement.NumericValue!.Value, 20d, 24d);
+            Assert.InRange(requests[3].Measurement.NumericValue!.Value, 60d, 61d);
+            Assert.Equal(4, requests.Select(request => request.Measurement.MeasurementId).Distinct().Count());
+            AssertSequencesPreparedIsLogged(logger, 2, 1);
+            Assert.Equal(0, lifetime.StopApplicationCallCount);
+        }
+        finally
+        {
+            await StopWorkerAsync(worker);
+        }
+    }
+
+    /// <summary>Checks the separate successful sequence-preparation log and its counts.</summary>
+    /// <param name="logger">The worker's captured logs.</param>
+    /// <param name="scenarioCount">The number of resolved scenario definitions.</param>
+    /// <param name="deviceCount">The number of devices receiving a sequence.</param>
+    private static void AssertSequencesPreparedIsLogged(RecordingLogger logger, int scenarioCount, int deviceCount)
+    {
+        var entry = Assert.Single(logger.Entries.Where(entry =>
+            entry.Properties.ContainsKey("ScenarioCount") && entry.Properties.ContainsKey("DeviceCount")));
+        Assert.Equal(LogLevel.Information, entry.Level);
+        Assert.Null(entry.Exception);
+        Assert.Equal(scenarioCount, entry.Properties["ScenarioCount"]);
+        Assert.Equal(deviceCount, entry.Properties["DeviceCount"]);
+        Assert.Equal("Temperature scenario preparation completed. " +
+            $"Resolved scenarios: {scenarioCount}, devices with sequences: {deviceCount}.", entry.Message);
+    }
+
+    /// <summary>
+    /// Shares a controlled clock between the worker and runners and exposes delay
+    /// registration so telemetry can be advanced without real sleeps or polling.
+    /// </summary>
+    private sealed class ObservedTimeProvider : TimeProvider
+    {
+        private readonly FakeTimeProvider _clock = new(
+            new DateTimeOffset(2026, 9, 27, 8, 0, 0, TimeSpan.Zero));
+        private readonly Channel<TimeSpan> _delays = Channel.CreateUnbounded<TimeSpan>();
+        private readonly long _initialTimestamp;
+
+        /// <summary>Captures the underlying timestamp origin before simulated time advances.</summary>
+        public ObservedTimeProvider()
+        {
+            _initialTimestamp = _clock.GetTimestamp();
+        }
+
+        /// <inheritdoc />
+        public override DateTimeOffset GetUtcNow() => _clock.GetUtcNow();
+
+        /// <inheritdoc />
+        public override long GetTimestamp() => _clock.GetTimestamp() - _initialTimestamp + 123456789;
+
+        /// <inheritdoc />
+        public override long TimestampFrequency => _clock.TimestampFrequency;
+
+        /// <inheritdoc />
+        public override TimeZoneInfo LocalTimeZone => _clock.LocalTimeZone;
+
+        /// <inheritdoc />
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = _clock.CreateTimer(callback, state, dueTime, period);
+            _delays.Writer.TryWrite(dueTime);
+            return timer;
+        }
+
+        /// <summary>Advances the shared time and triggers due callbacks.</summary>
+        /// <param name="elapsed">The simulated duration to advance.</param>
+        public void Advance(TimeSpan elapsed) => _clock.Advance(elapsed);
+
+        /// <summary>Waits until a runner has registered its next interval delay.</summary>
+        /// <returns>A task representing observation of one telemetry delay.</returns>
+        public async Task WaitForDelayAsync()
+        {
+            var delay = await _delays.Reader.ReadAsync(TestContext.Current.CancellationToken)
+                .AsTask().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+            Assert.Equal(TimeSpan.FromMinutes(1), delay);
+        }
+    }
+
     /// <summary>
     /// Verifies one preparation summary and an ordered structured information
     /// message for every prepared device, using the active lifecycle.
@@ -1628,7 +1973,8 @@ public sealed class SimulationWorkerTests
     /// <param name="plan">The plan whose scenarios were resolved.</param>
     private static void AssertResolvedPlanIsLogged(RecordingLogger logger, SimulationPlanDefinition plan)
     {
-        var entry = Assert.Single(logger.Entries.Where(log => log.Properties.ContainsKey("ScenarioCount")));
+        var entry = Assert.Single(logger.Entries.Where(log =>
+            log.Properties.ContainsKey("ScenarioCount") && log.Properties.ContainsKey("PlanName")));
         Assert.Equal(LogLevel.Information, entry.Level);
         Assert.Null(entry.Exception);
         Assert.Equal(plan.Name, entry.Properties["PlanName"]);
@@ -1664,6 +2010,7 @@ public sealed class SimulationWorkerTests
     /// <param name="telemetryCoordinator">
     /// A configured coordinator, or null to create one with controlled time.
     /// </param>
+    /// <param name="time">The time provider shared by the worker and default coordinators.</param>
     /// <returns>A worker that must be disposed by its caller.</returns>
     private static SimulationWorker CreateWorker(
         ISimulationPlanReader reader,
@@ -1672,8 +2019,10 @@ public sealed class SimulationWorkerTests
         IDeviceSimulatorApiClient apiClient,
         string planName = "normal-operation",
         DeviceHeartbeatCoordinator? heartbeatCoordinator = null,
-        DeviceTelemetryCoordinator? telemetryCoordinator = null)
+        DeviceTelemetryCoordinator? telemetryCoordinator = null,
+        TimeProvider? time = null)
     {
+        time ??= new FakeTimeProvider();
         var loader = new SimulationPlanLoader(reader, new SimulationPlanValidator());
         var options = Options.Create(new DeviceSimulatorOptions { PlanName = planName });
 
@@ -1681,9 +2030,10 @@ public sealed class SimulationWorkerTests
 
         return new SimulationWorker(
             logger, loader, options, lifetime, apiClient, preparationService,
-            heartbeatCoordinator ?? CreateHeartbeatCoordinator(apiClient),
-            telemetryCoordinator ?? CreateTelemetryCoordinator(apiClient),
-            new SimulationPlanResolver(new ScenarioTargetResolver()));
+            heartbeatCoordinator ?? CreateHeartbeatCoordinator(apiClient, time: time),
+            telemetryCoordinator ?? CreateTelemetryCoordinator(apiClient, time: time),
+            new SimulationPlanResolver(new ScenarioTargetResolver()),
+            new DeviceTemperatureScenarioSequenceFactory(), time);
     }
 
     /// <summary>
@@ -1692,9 +2042,10 @@ public sealed class SimulationWorkerTests
     /// </summary>
     /// <param name="apiClient">The shared API substitute.</param>
     /// <param name="maxFailures">The runner's consecutive failure limit.</param>
+    /// <param name="time">The runner clock, or null to create a controlled clock.</param>
     /// <returns>A coordinator for the supplied API behavior.</returns>
     private static DeviceHeartbeatCoordinator CreateHeartbeatCoordinator(
-        IDeviceSimulatorApiClient apiClient, int maxFailures = 5)
+        IDeviceSimulatorApiClient apiClient, int maxFailures = 5, TimeProvider? time = null)
     {
         var options = Options.Create(new DeviceSimulatorOptions
         {
@@ -1703,7 +2054,7 @@ public sealed class SimulationWorkerTests
         });
         var runner = new DeviceHeartbeatRunner(
             NullLogger<DeviceHeartbeatRunner>.Instance, apiClient, options,
-            new FakeTimeProvider());
+            time ?? new FakeTimeProvider());
 
         return new DeviceHeartbeatCoordinator(
             NullLogger<DeviceHeartbeatCoordinator>.Instance, runner);
@@ -1717,13 +2068,14 @@ public sealed class SimulationWorkerTests
     /// The API client used by the telemetry runner.
     /// </param>
     /// <param name="maxFailures">The runner's consecutive failure limit.</param>
+    /// <param name="time">The runner clock, or null to create a controlled clock.</param>
     /// <returns>
     /// A coordinator configured for telemetry execution in tests.
     /// </returns>
     private static DeviceTelemetryCoordinator CreateTelemetryCoordinator(
-        IDeviceSimulatorApiClient apiClient, int maxFailures = 5)
+        IDeviceSimulatorApiClient apiClient, int maxFailures = 5, TimeProvider? time = null)
     {
-        var clock = new FakeTimeProvider();
+        var clock = time ?? new FakeTimeProvider();
 
         var options = Options.Create(new DeviceSimulatorOptions
         {

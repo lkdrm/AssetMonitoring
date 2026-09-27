@@ -62,6 +62,7 @@ public static class DependencyInjection
         services.AddSingleton<DeviceTelemetryCoordinator>();
         services.AddSingleton<ScenarioTargetResolver>();
         services.AddSingleton<SimulationPlanResolver>();
+        services.AddSingleton<DeviceTemperatureScenarioSequenceFactory>();
 
         return services;
     }

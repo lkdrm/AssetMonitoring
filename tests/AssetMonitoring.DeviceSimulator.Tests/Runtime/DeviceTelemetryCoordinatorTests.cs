@@ -2,6 +2,7 @@ using AssetMonitoring.DeviceSimulator.Api.Contracts;
 using AssetMonitoring.DeviceSimulator.Configuration;
 using AssetMonitoring.DeviceSimulator.Interfaces;
 using AssetMonitoring.DeviceSimulator.Runtime;
+using AssetMonitoring.DeviceSimulator.Scenarios;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -15,7 +16,8 @@ namespace AssetMonitoring.DeviceSimulator.Tests.Runtime;
 
 /// <summary>
 /// Verifies concurrent telemetry coordination, failure isolation, cancellation,
-/// and completion using the real runner and generator with a fake API and controlled time.
+/// completion, per-device scenario routing, and shared simulation time using
+/// the real runner and generator with a fake API and controlled time.
 /// </summary>
 /// <remarks>
 /// Requires xUnit v3 and Microsoft.Extensions.TimeProvider.Testing.
@@ -406,6 +408,220 @@ public sealed class DeviceTelemetryCoordinatorTests
         AssertCancellationLog(harness.Logger, runningDevice);
     }
 
+    /// <summary>Verifies that a missing sequence dictionary is rejected before execution.</summary>
+    [Fact]
+    public async Task RunAsyncWithNullSequencesThrowsArgumentNullException()
+    {
+        await using var harness = new CoordinatorHarness();
+
+        var operation = harness.Start(new[] { CreateDevice(1) }, null!, harness.Clock.GetTimestamp());
+        var exception = await Assert.ThrowsAsync<ArgumentNullException>(() => AwaitAsync(operation));
+
+        Assert.Equal("sequencesByDevice", exception.ParamName);
+        Assert.Empty(harness.Client.Requests);
+        Assert.Empty(harness.Logger.Entries);
+        Assert.Equal(0, harness.Clock.TimerCount);
+    }
+
+    /// <summary>
+    /// Verifies routing by device identifier independently of dictionary order,
+    /// normal telemetry for an untargeted device, and no execution for absent devices.
+    /// </summary>
+    [Fact]
+    public async Task RunAsyncMapsSequencesByDeviceIdAndLeavesUntargetedDevicesNormal()
+    {
+        await using var harness = new CoordinatorHarness();
+        var first = CreateDevice(1);
+        var second = CreateDevice(2);
+        var untargeted = CreateDevice(3);
+        var absent = CreateDevice(4);
+        var firstScenario = CreateScenario(first.Id, 50);
+        var secondScenario = CreateScenario(second.Id, 60);
+        var absentScenario = CreateScenario(absent.Id, 70);
+        var sequences = new Dictionary<Guid, DeviceTemperatureScenarioSequence>
+        {
+            [second.Id] = new(second.Id, new[] { secondScenario }),
+            [absent.Id] = new(absent.Id, new[] { absentScenario }),
+            [first.Id] = new(first.Id, new[] { firstScenario })
+        };
+
+        var operation = harness.Start(new[] { first, second, untargeted }, sequences,
+            harness.Clock.GetTimestamp());
+        for (var index = 0; index < 3; index++)
+        {
+            await harness.Clock.WaitForDelayAsync();
+        }
+
+        var measurements = harness.Client.Requests.ToDictionary(request => request.DeviceId,
+            request => request.Measurement);
+        Assert.Equal(3, measurements.Count);
+        Assert.Equal(50d, measurements[first.Id].NumericValue!.Value);
+        Assert.Equal(60d, measurements[second.Id].NumericValue!.Value);
+        Assert.InRange(measurements[untargeted.Id].NumericValue!.Value, 20d, 24d);
+        Assert.Equal(ScenarioPhase.Pending, absentScenario.Phase);
+        Assert.Null(absentScenario.CurrentTemperature);
+        Assert.Empty(harness.Logger.Entries);
+
+        await harness.Cancellation.CancelAsync();
+        await AwaitAsync(operation);
+    }
+
+    /// <summary>
+    /// Verifies that an earlier supplied timestamp reaches every runner unchanged,
+    /// including a device started after another device advances the shared clock.
+    /// </summary>
+    [Fact]
+    public async Task RunAsyncForwardsSharedStartToDevicesStartedAtDifferentTimes()
+    {
+        var clock = new ObservedTimeProvider();
+        var first = CreateDevice(1);
+        var second = CreateDevice(2);
+        await using var harness = new CoordinatorHarness((id, measurement, _) =>
+        {
+            if (id == first.Id)
+            {
+                clock.Advance(TimeSpan.FromMinutes(2));
+            }
+            return Task.FromResult(CreateResponse(measurement));
+        }, clock: clock);
+        var sequences = new Dictionary<Guid, DeviceTemperatureScenarioSequence>
+        {
+            [first.Id] = new(first.Id,
+                new[] { CreateScenario(first.Id, 50, TimeSpan.FromMinutes(1)) }),
+            [second.Id] = new(second.Id,
+                new[] { CreateScenario(second.Id, 60, TimeSpan.FromMinutes(1)) })
+        };
+        var simulationStartedAt = clock.GetTimestamp();
+        clock.Advance(TimeSpan.FromMinutes(2));
+
+        var operation = harness.Start(new[] { first, second }, sequences, simulationStartedAt);
+        await clock.WaitForDelayAsync();
+        await clock.WaitForDelayAsync();
+
+        var requests = harness.Client.Requests;
+        Assert.Equal(2, requests.Count);
+        Assert.Equal(50d, requests[0].Measurement.NumericValue!.Value);
+        Assert.Equal(60d, requests[1].Measurement.NumericValue!.Value);
+        Assert.Empty(harness.Logger.Entries);
+
+        await harness.Cancellation.CancelAsync();
+        await AwaitAsync(operation);
+    }
+
+    /// <summary>Verifies that cancellation before startup leaves supplied scenario state untouched.</summary>
+    [Fact]
+    public async Task RunAsyncWithCanceledTokenDoesNotAdvanceSequences()
+    {
+        await using var harness = new CoordinatorHarness();
+        var device = CreateDevice(1);
+        var scenario = CreateScenario(device.Id, 50);
+        var sequences = new Dictionary<Guid, DeviceTemperatureScenarioSequence>
+        {
+            [device.Id] = new(device.Id, new[] { scenario })
+        };
+        await harness.Cancellation.CancelAsync();
+
+        await AwaitAsync(harness.Start(new[] { device }, sequences, harness.Clock.GetTimestamp()));
+
+        Assert.Empty(harness.Client.Requests);
+        Assert.Equal(ScenarioPhase.Pending, scenario.Phase);
+        Assert.Null(scenario.CurrentTemperature);
+        AssertCancellationLog(harness.Logger, device);
+    }
+
+    /// <summary>
+    /// Verifies that a failure while applying one device's scenario is isolated
+    /// and another device continues executing its own scenario.
+    /// </summary>
+    [Fact]
+    public async Task RunAsyncIsolatesScenarioFailureFromOtherDevices()
+    {
+        await using var harness = new CoordinatorHarness();
+        var failing = CreateDevice(1);
+        var healthy = CreateDevice(2);
+        var sequences = new Dictionary<Guid, DeviceTemperatureScenarioSequence>
+        {
+            [failing.Id] = new(failing.Id, new[] { CreateScenario(failing.Id, 50, autoRecover: false) }),
+            [healthy.Id] = new(healthy.Id, new[] { CreateScenario(healthy.Id, 60) })
+        };
+
+        var operation = harness.Start(new[] { failing, healthy }, sequences, harness.Clock.GetTimestamp());
+        await harness.Clock.WaitForDelayAsync();
+        var failure = Assert.Single(harness.Logger.Entries);
+        AssertFailureLog(failure, failing, Assert.IsType<NotSupportedException>(failure.Exception));
+        Assert.Equal(healthy.Id, Assert.Single(harness.Client.Requests).DeviceId);
+        Assert.False(operation.IsCompleted);
+        Assert.False(harness.Cancellation.IsCancellationRequested);
+
+        harness.Clock.Advance(TelemetryInterval);
+        await harness.Clock.WaitForDelayAsync();
+        Assert.Equal(2, harness.Client.Requests.Count);
+        Assert.All(harness.Client.Requests, request =>
+        {
+            Assert.Equal(healthy.Id, request.DeviceId);
+            Assert.Equal(60d, request.Measurement.NumericValue!.Value);
+        });
+
+        await harness.Cancellation.CancelAsync();
+        await AwaitAsync(operation);
+        AssertCancellationLog(harness.Logger, healthy);
+    }
+
+    /// <summary>Verifies that the same supplied queue advances across telemetry cycles.</summary>
+    [Fact]
+    public async Task RunAsyncExecutesSuccessiveScenariosFromTheSuppliedSequence()
+    {
+        await using var harness = new CoordinatorHarness();
+        var device = CreateDevice(1);
+        var first = CreateScenario(device.Id, 50);
+        var second = CreateScenario(device.Id, 60);
+        var sequences = new Dictionary<Guid, DeviceTemperatureScenarioSequence>
+        {
+            [device.Id] = new(device.Id, new[] { first, second })
+        };
+
+        var operation = harness.Start(new[] { device }, sequences, harness.Clock.GetTimestamp());
+        await harness.Clock.WaitForDelayAsync();
+        for (var index = 0; index < 4; index++)
+        {
+            harness.Clock.Advance(TelemetryInterval);
+            await harness.Clock.WaitForDelayAsync();
+        }
+
+        var requests = harness.Client.Requests;
+        Assert.Equal(5, requests.Count);
+        Assert.Equal(50d, requests[0].Measurement.NumericValue!.Value);
+        Assert.InRange(requests[3].Measurement.NumericValue!.Value, 20d, 24d);
+        Assert.Equal(60d, requests[4].Measurement.NumericValue!.Value);
+        Assert.Equal(ScenarioPhase.Completed, first.Phase);
+        Assert.Equal(ScenarioPhase.Active, second.Phase);
+        Assert.Empty(harness.Logger.Entries);
+
+        await harness.Cancellation.CancelAsync();
+        await AwaitAsync(operation);
+    }
+
+    /// <summary>Creates a scenario with an exact abnormal target and a fast temperature transition.</summary>
+    /// <param name="deviceId">The device owning the runtime.</param>
+    /// <param name="targetTemperature">The midpoint selected as the abnormal target.</param>
+    /// <param name="startsAfter">The planned start delay, or zero when omitted.</param>
+    /// <param name="autoRecover">Whether automatic recovery is supported for this scenario.</param>
+    /// <returns>An independent pending runtime.</returns>
+    private static HighTemperatureScenarioRuntime CreateScenario(
+        Guid deviceId, double targetTemperature, TimeSpan? startsAfter = null, bool autoRecover = true) =>
+        new(new HighTemperatureScenarioDefinition(
+            "TemperatureScenario", startsAfter ?? TimeSpan.Zero, TimeSpan.FromMinutes(2),
+            new ScenarioTargetDefinition(ScenarioTargetMode.All), autoRecover,
+            autoRecover ? TimeSpan.FromMinutes(1) : null,
+            targetTemperature - 1, targetTemperature + 1, 100, 100), deviceId, new MidpointRandom());
+
+    /// <summary>Selects the midpoint of an abnormal temperature range deterministically.</summary>
+    private sealed class MidpointRandom : Random
+    {
+        /// <inheritdoc />
+        public override double NextDouble() => 0.5;
+    }
+
     /// <summary>Creates an active device with deterministic identity.</summary>
     /// <param name="number">The suffix distinguishing the device.</param>
     /// <returns>An active temperature sensor.</returns>
@@ -503,10 +719,13 @@ public sealed class DeviceTelemetryCoordinatorTests
         /// <summary>Creates the coordinator, real runner, and fake dependencies.</summary>
         /// <param name="send">The API behavior, or null for success.</param>
         /// <param name="maxFailures">The runner's consecutive failure limit.</param>
+        /// <param name="clock">The shared controlled clock, or null to create one.</param>
         public CoordinatorHarness(
             Func<Guid, SimulatorTelemetryMeasurementRequest, CancellationToken, Task<SimulatorTelemetryRecordingResponse>>? send = null,
-            int maxFailures = 5)
+            int maxFailures = 5,
+            ObservedTimeProvider? clock = null)
         {
+            Clock = clock ?? new ObservedTimeProvider();
             Client = new StubApiClient(send);
             Coordinator = new DeviceTelemetryCoordinator(Logger, CreateRunner(Client, Clock, maxFailures));
         }
@@ -519,7 +738,7 @@ public sealed class DeviceTelemetryCoordinatorTests
         public StubApiClient Client { get; }
 
         /// <summary>Gets the time provider used for runner delays.</summary>
-        public ObservedTimeProvider Clock { get; } = new();
+        public ObservedTimeProvider Clock { get; }
 
         /// <summary>Gets the captured coordinator logs.</summary>
         public RecordingLogger Logger { get; } = new();
@@ -531,8 +750,17 @@ public sealed class DeviceTelemetryCoordinatorTests
         /// <param name="devices">The supplied device collection.</param>
         /// <returns>The task representing all device loops.</returns>
         public Task Start(IReadOnlyList<SimulatorDeviceResponse> devices)
+            => Start(devices, new Dictionary<Guid, DeviceTemperatureScenarioSequence>(), Clock.GetTimestamp());
+
+        /// <summary>Starts coordination with prepared sequences and a shared simulation timestamp.</summary>
+        /// <param name="devices">The supplied device collection.</param>
+        /// <param name="sequences">The sequences keyed by device identifier.</param>
+        /// <param name="simulationStartedAt">The timestamp captured using the runner's clock.</param>
+        /// <returns>The tracked task representing all device loops.</returns>
+        public Task Start(IReadOnlyList<SimulatorDeviceResponse> devices,
+            IReadOnlyDictionary<Guid, DeviceTemperatureScenarioSequence> sequences, long simulationStartedAt)
         {
-            var operation = Coordinator.RunAsync(devices, Cancellation.Token);
+            var operation = Coordinator.RunAsync(devices, sequences, simulationStartedAt, Cancellation.Token);
             _operations.Add(operation);
             return operation;
         }
