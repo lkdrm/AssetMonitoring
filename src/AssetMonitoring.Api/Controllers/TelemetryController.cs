@@ -10,7 +10,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AssetMonitoring.Api.Controllers;
 
 /// <summary>
-/// Provides HTTP operations for recording device telemetry measurements.
+/// Provides HTTP operations for recording device telemetry measurements and reading their history and latest values.
 /// </summary>
 [ApiController]
 [Route("api/devices/{deviceId:guid}/telemetry")]
@@ -30,7 +30,8 @@ public class TelemetryController : ControllerBase
     /// The read-only service used to query telemetry measurement history.
     /// </param>
     /// <exception cref="ArgumentNullException">
-    /// Thrown when <paramref name="recordingService"/> is null.
+    /// Thrown when <paramref name="recordingService"/> or
+    /// <paramref name="telemetryQueries"/> is null.
     /// </exception>
     public TelemetryController(TelemetryRecordingService recordingService, ITelemetryQueries telemetryQueries)
     {

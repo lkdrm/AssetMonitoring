@@ -98,21 +98,17 @@ public sealed class DeviceTelemetryRunner
         => RunAsync(device, null, _timeProvider.GetTimestamp(), cancellationToken);
 
     /// <summary>
-    /// Generates and sends telemetry for one active device, optionally applying
-    /// a high-temperature scenario to its temperature measurements.
+    /// Generates and sends telemetry for one active device, applying the device's
+    /// queue of temperature scenarios to its temperature measurements.
     /// The first cycle starts immediately. Subsequent cycles start after
     /// the configured delay following completion of the previous cycle.
     /// </summary>
-    /// <remarks>
-    /// The scenario is applied once per new temperature measurement.
-    /// HTTP retries reuse the resulting measurement without advancing
-    /// the scenario again. Other metrics remain unchanged.
-    /// </remarks>
     /// <param name="device">
     /// The active device whose capabilities determine the generated measurements.
     /// </param>
     /// <param name="scenarioSequence">
-    /// The device's temperature scenario sequence, or null to generate normal telemetry.
+    /// The device's ordered temperature scenario queue, or null to generate
+    /// normal telemetry only.
     /// </param>
     /// <param name="simulationStartedAt">
     /// The simulation start timestamp obtained from the same time provider

@@ -54,6 +54,9 @@ public sealed class SimulationPlanValidator
         return new SimulationPlanValidationResult(errors.ToArray());
     }
 
+    /// <summary>
+    /// Validates plan-level properties: the name and the presence of the scenarios collection.
+    /// </summary>
     private static void ValidatePlan(SimulationPlanDefinition plan, List<SimulationPlanValidationError> errors)
     {
         if (string.IsNullOrWhiteSpace(plan.Name))
@@ -70,6 +73,9 @@ public sealed class SimulationPlanValidator
         }
     }
 
+    /// <summary>
+    /// Validates one scenario and adds every discovered error with a JSON path rooted at <paramref name="path"/>.
+    /// </summary>
     private static void ValidateScenario(ScenarioDefinition scenario, string path, HashSet<string> scenarioNames, List<SimulationPlanValidationError> errors)
     {
         if (string.IsNullOrWhiteSpace(scenario.Name))
@@ -120,6 +126,9 @@ public sealed class SimulationPlanValidator
 
     }
 
+    /// <summary>
+    /// Validates the combination of automatic recovery and recovery duration.
+    /// </summary>
     private static void ValidateRecovery(ScenarioDefinition scenario, string path, List<SimulationPlanValidationError> errors)
     {
         if (scenario.AutoRecover)
@@ -131,8 +140,15 @@ public sealed class SimulationPlanValidator
                     $"{path}.recoveryDuration",
                     "Recovery duration must be provided and greater than zero when automatic recovery is enabled."));
             }
+
+            return;
         }
-        else if (scenario.RecoveryDuration is not null)
+
+        errors.Add(new("Scenario.AutoRecover.NotSupported",
+            $"{path}.autoRecover",
+            "Scenarios without automatic recovery are not supported yet."));
+
+        if (scenario.RecoveryDuration is not null)
         {
             errors.Add(new(
                 "Scenario.RecoveryDuration.Unexpected",
@@ -141,6 +157,9 @@ public sealed class SimulationPlanValidator
         }
     }
 
+    /// <summary>
+    /// Validates that the target properties match the selected target mode.
+    /// </summary>
     private static void ValidateTarget(ScenarioTargetDefinition target, string path, List<SimulationPlanValidationError> errors)
     {
         switch (target.Mode)
@@ -198,6 +217,9 @@ public sealed class SimulationPlanValidator
         }
     }
 
+    /// <summary>
+    /// Validates high-temperature bounds and per-measurement rise and recovery limits.
+    /// </summary>
     private static void ValidateHighTemperature(HighTemperatureScenarioDefinition scenario, string path, List<SimulationPlanValidationError> errors)
     {
         var minimumIsFinite = double.IsFinite(scenario.AbnormalMinimum);

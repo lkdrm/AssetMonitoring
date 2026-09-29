@@ -409,6 +409,7 @@ public sealed class SimulationWorker : BackgroundService
         {
             var result = _planResolver.Resolve(plan, devices);
             _logger.LogInformation("Simulation plan {PlanName} was resolved. Scenarios: {ScenarioCount}.", plan.Name, result.Count);
+            LogScenarioAssigments(result);
             return result;
         }
         catch (Exception exception) when (exception
@@ -421,6 +422,20 @@ public sealed class SimulationWorker : BackgroundService
 
             _applicationLifetime.StopApplication();
             return null;
+        }
+    }
+
+    private void LogScenarioAssigments(IReadOnlyList<ResolvedScenario> scenarios)
+    {
+        foreach (var scenario in scenarios)
+        {
+            var definition = scenario.Definition;
+
+            foreach (var device in scenario.Devices)
+            {
+                _logger.LogInformation("Scenario {ScenarioName} ({ScenarioType}) targets device {DeviceCode} ({DeviceId}). Starts after {StartsAfter}, duration {Duration}.",
+                    definition.Name, definition.GetType().Name, device.Code, device.Id, definition.StartsAfter, definition.Duration);
+            }
         }
     }
 

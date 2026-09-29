@@ -1,0 +1,38 @@
+{
+  "name": "WarehouseHighTemperatureQueue",
+  "seed": 42,
+  "scenarios": [
+    {
+      "type": "HighTemperature",
+      "name": "FirstHeatWave",
+      "startsAfter": "00:01:00",
+      "duration": "00:02:00",
+      "target": {
+        "mode": "SpecificDevice",
+        "deviceCode": "WH-001"
+      },
+      "autoRecover": true,
+      "recoveryDuration": "00:01:00",
+      "abnormalMinimum": 30,
+      "abnormalMaximum": 32,
+      "maximumRisePerMeasurement": 2,
+      "maximumRecoveryPerMeasurement": 2
+    },
+    {
+      "type": "HighTemperature",
+      "name": "SecondHeatWave",
+      "startsAfter": "00:02:00",
+      "duration": "00:02:00",
+      "target": {
+        "mode": "SpecificDevice",
+        "deviceCode": "WH-009"
+      },
+      "autoRecover": true,
+      "recoveryDuration": "00:01:00",
+      "abnormalMinimum": 36,
+      "abnormalMaximum": 38,
+      "maximumRisePerMeasurement": 2,
+      "maximumRecoveryPerMeasurement": 2
+    }
+  ]
+}
