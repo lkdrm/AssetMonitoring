@@ -1,26 +1,33 @@
-﻿using AssetMonitoring.DeviceSimulator.Scenarios;
+﻿using AssetMonitoring.DeviceSimulator.Api.Contracts;
+using AssetMonitoring.DeviceSimulator.Interfaces;
+using AssetMonitoring.DeviceSimulator.Scenarios;
 
 namespace AssetMonitoring.DeviceSimulator.Runtime;
 
 /// <summary>
-/// Tracks the temperature state of one high-temperature scenario
-/// for one simulated device.
+/// Tracks a high-temperature scenario for one simulated device.
 /// </summary>
 /// <remarks>
-/// Reuse the same instance for successive measurements of the same device.
-/// Calls must be sequential and use nondecreasing elapsed simulation time.
-/// The scenario definition is expected to have passed simulation plan validation.
-/// This runtime calculates values without sending requests or scheduling delays.
+/// Selects an abnormal target once and delegates gradual temperature
+/// changes to a shared numeric calculation component.
+/// Reuse the same runtime instance for successive measurements
+/// of the same device and scenario.
+/// Calls must be sequential and use nondecreasing elapsed time.
+/// The definition is expected to have passed simulation plan validation.
 /// </remarks>
-public sealed class HighTemperatureScenarioRuntime
+public sealed class HighTemperatureScenarioRuntime : IMeasurementScenarioRuntime
 {
+    private readonly HighTemperatureScenarioDefinition _definition;
+    private readonly Guid _deviceId;
+    private readonly GradualDeviation _deviation;
+
     /// <summary>
     /// Gets the definition that configures this scenario instance.
     /// </summary>
     public HighTemperatureScenarioDefinition Definition => _definition;
 
     /// <summary>
-    /// Gets the identifier of the device affected by this scenario instance.
+    /// Gets the identifier of the device affected by the scenario.
     /// </summary>
     public Guid DeviceId => _deviceId;
 
@@ -28,35 +35,34 @@ public sealed class HighTemperatureScenarioRuntime
     /// Gets the current execution phase.
     /// The initial phase is <see cref="ScenarioPhase.Pending"/>.
     /// </summary>
-    public ScenarioPhase Phase { get; private set; } = ScenarioPhase.Pending;
+    public ScenarioPhase Phase => _deviation.Phase;
 
     /// <summary>
-    /// Gets the most recently calculated temperature,
-    /// or null before a temperature has been calculated.
+    /// Gets the most recently calculated temperature in degrees Celsius,
+    /// or null before the first calculation.
     /// </summary>
-    public double? CurrentTemperature { get; private set; }
+    public double? CurrentTemperature => _deviation.CurrentValue;
 
-    private readonly HighTemperatureScenarioDefinition _definition;
-    private readonly Guid _deviceId;
-    private readonly double _targetTemperature;
-    private double? _recoveryStartTemperature;
-    private double? _recoveryTargetTemperature;
+    /// <inheritdoc />
+    ScenarioDefinition IMeasurementScenarioRuntime.Definition => _definition;
+
+    /// <inheritdoc />
+    public SimulatorTelemetryMetric Metric => SimulatorTelemetryMetric.Temperature;
 
     /// <summary>
-    /// Initializes a new instance of the
-    /// <see cref="HighTemperatureScenarioRuntime"/> class
-    /// and selects its abnormal target temperature once.
+    /// Initializes a scenario runtime and selects its abnormal
+    /// target temperature once.
     /// </summary>
     /// <param name="definition">
-    /// The validated definition containing timing, temperature bounds,
-    /// recovery settings, and limits on changes per measurement.
+    /// The validated definition containing timing, target temperature
+    /// bounds, recovery settings, and per-measurement limits.
     /// </param>
     /// <param name="deviceId">
-    /// The identifier of the device affected by the scenario.
+    /// The nonempty identifier of the device affected by the scenario.
     /// </param>
     /// <param name="random">
     /// The random source used to select the abnormal target temperature.
-    /// Supply a seeded source when reproducible target selection is required.
+    /// Supply a seeded source when reproducible selection is required.
     /// </param>
     /// <exception cref="ArgumentNullException">
     /// Thrown when <paramref name="definition"/> or
@@ -69,6 +75,7 @@ public sealed class HighTemperatureScenarioRuntime
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(random);
+
         if (deviceId == Guid.Empty)
         {
             throw new ArgumentException("Device ID cannot be empty.", nameof(deviceId));
@@ -76,32 +83,37 @@ public sealed class HighTemperatureScenarioRuntime
 
         _definition = definition;
         _deviceId = deviceId;
-        _targetTemperature = definition.AbnormalMinimum + random.NextDouble() * (definition.AbnormalMaximum - definition.AbnormalMinimum);
+
+        var targetTemperature = definition.AbnormalMinimum + random.NextDouble() * (definition.AbnormalMaximum - definition.AbnormalMinimum);
+
+        _deviation = new GradualDeviation(definition.StartsAfter, definition.Duration, definition.RecoveryDuration, targetTemperature, definition.MaximumRisePerMeasurement, definition.MaximumRecoveryPerMeasurement);
     }
 
     /// <summary>
-    /// Calculates the next temperature and updates the scenario phase
-    /// using the elapsed time since simulation execution began.
+    /// Calculates the next temperature and updates the scenario phase.
     /// </summary>
     /// <remarks>
-    /// Pending and completed scenarios return the supplied normal temperature.
-    /// The active phase raises the saved temperature toward the selected target.
-    /// Automatic recovery follows its planned duration while respecting the
-    /// maximum decrease per measurement, so recovery may finish later if needed.
-    /// Calculate a value once per new measurement; HTTP retries must reuse
-    /// the existing measurement without advancing this runtime again.
+    /// Pending and completed phases return the supplied normal temperature.
+    /// The active phase raises the temperature toward the selected target.
+    /// Recovery captures a normal target once and respects the maximum
+    /// decrease per measurement, even when this extends its duration.
+    /// Calculate the temperature once per new measurement;
+    /// HTTP retries must reuse the previously calculated measurement.
     /// </remarks>
     /// <param name="normalTemperature">
-    /// The finite normal temperature generated for the current measurement.
-    /// It also provides an initial temperature when no previous value exists
-    /// and the recovery target on the first recovery calculation.
+    /// The finite normal temperature for the current measurement,
+    /// in degrees Celsius.
+    /// Supplies the initial value when no previous temperature exists
+    /// and the target on the first recovery calculation.
     /// </param>
     /// <param name="elapsed">
-    /// The nonnegative elapsed time since simulation execution began.
-    /// Supply nondecreasing values for successive calls on this instance.
+    /// The nonnegative elapsed time on the scenario timeline,
+    /// using the same origin as the definition's start delay.
+    /// Successive calls must supply nondecreasing values.
     /// </param>
     /// <returns>
-    /// The temperature to use for the current measurement.
+    /// The temperature to use for the current measurement,
+    /// in degrees Celsius.
     /// </returns>
     /// <exception cref="ArgumentOutOfRangeException">
     /// Thrown when <paramref name="normalTemperature"/> is not finite
@@ -116,7 +128,7 @@ public sealed class HighTemperatureScenarioRuntime
     /// </exception>
     public double GetNextTemperature(double normalTemperature, TimeSpan elapsed)
     {
-        if (double.IsNaN(normalTemperature) || double.IsInfinity(normalTemperature))
+        if (!double.IsFinite(normalTemperature))
         {
             throw new ArgumentOutOfRangeException(nameof(normalTemperature), normalTemperature, "Temperature must be a finite number.");
         }
@@ -128,147 +140,23 @@ public sealed class HighTemperatureScenarioRuntime
 
         if (!_definition.AutoRecover)
         {
-            throw new NotSupportedException("High-temperature scenarios without automatic recovery are not supported yet.");
+            throw new NotSupportedException("High-temperature scenarios without automatic recovery " + "are not supported yet.");
         }
 
-        if (Phase == ScenarioPhase.Completed)
-        {
-            return GetCompletedTemperature(normalTemperature);
-        }
-
-        if (elapsed < _definition.StartsAfter)
-        {
-            return GetPendingTemperature(normalTemperature);
-        }
-
-        var activeEndsAt = _definition.StartsAfter + _definition.Duration;
-
-        if (elapsed < activeEndsAt)
-        {
-            return GetActiveTemperature(normalTemperature);
-        }
-
-        return GetRecoveringTemperature(normalTemperature, elapsed - activeEndsAt);
+        return _deviation.GetNextValue(normalTemperature, elapsed);
     }
 
-    /// <summary>
-    /// Records a normal temperature and keeps the scenario completed.
-    /// </summary>
-    /// <param name="normalTemperature">
-    /// The normal temperature to return: the captured target when recovery
-    /// completes, or a newly generated normal value on subsequent calls.
-    /// </param>
-    /// <returns>
-    /// The supplied normal temperature.
-    /// </returns>
-    private double GetCompletedTemperature(double normalTemperature)
+    /// <inheritdoc />
+    public SimulatorTelemetryMeasurementRequest Apply(SimulatorTelemetryMeasurementRequest measurement, TimeSpan elapsed)
     {
-        Phase = ScenarioPhase.Completed;
-        CurrentTemperature = normalTemperature;
-        return normalTemperature;
-    }
+        ArgumentNullException.ThrowIfNull(measurement);
 
-    /// <summary>
-    /// Records and returns the normal temperature while the scenario
-    /// is waiting for its configured start time.
-    /// </summary>
-    /// <param name="normalTemperature">
-    /// The normal temperature generated for the current measurement.
-    /// </param>
-    /// <returns>
-    /// The supplied normal temperature.
-    /// </returns>
-    private double GetPendingTemperature(double normalTemperature)
-    {
-        Phase = ScenarioPhase.Pending;
-        CurrentTemperature = normalTemperature;
-        return normalTemperature;
-    }
-
-    /// <summary>
-    /// Raises the saved temperature toward the abnormal target
-    /// without exceeding the maximum rise per measurement.
-    /// </summary>
-    /// <remarks>
-    /// A temperature already at or above the target is returned unchanged.
-    /// </remarks>
-    /// <param name="normalTemperature">
-    /// The initial temperature to use when no previous value exists.
-    /// </param>
-    /// <returns>
-    /// The temperature for the current active-phase measurement.
-    /// </returns>
-    private double GetActiveTemperature(double normalTemperature)
-    {
-        Phase = ScenarioPhase.Active;
-
-        var previousTemperature = CurrentTemperature ?? normalTemperature;
-
-        if (previousTemperature >= _targetTemperature)
+        if (measurement.Metric != Metric)
         {
-            CurrentTemperature = previousTemperature;
-            return previousTemperature;
+            throw new ArgumentException($"The runtime applies only to {Metric} measurements.", nameof(measurement));
         }
 
-        var nextTemperature = Math.Min(previousTemperature + _definition.MaximumRisePerMeasurement, _targetTemperature);
-        CurrentTemperature = nextTemperature;
-
-        return nextTemperature;
-    }
-
-    /// <summary>
-    /// Calculates the recovery temperature from elapsed recovery time
-    /// and the maximum decrease allowed for one measurement.
-    /// </summary>
-    /// <remarks>
-    /// The starting temperature and normal target are captured on the first call.
-    /// Recovery completes only after the planned duration has elapsed and the
-    /// target can be reached without exceeding the permitted decrease.
-    /// The final recovery measurement uses the exact captured target.
-    /// </remarks>
-    /// <param name="normalTemperature">
-    /// The normal target to capture on the first recovery call,
-    /// also used as the starting temperature if no previous value exists.
-    /// </param>
-    /// <param name="recoveryElapsed">
-    /// The elapsed time since the configured end of the active phase.
-    /// </param>
-    /// <returns>
-    /// The temperature for the current recovery measurement,
-    /// or the exact target when recovery completes.
-    /// </returns>
-    /// <exception cref="InvalidOperationException">
-    /// Thrown when the recovery duration is missing or is not greater than zero.
-    /// </exception>
-    private double GetRecoveringTemperature(double normalTemperature, TimeSpan recoveryElapsed)
-    {
-        var recoveryDuration = _definition.RecoveryDuration ?? throw new InvalidOperationException("Automatic recovery requires a recovery duration.");
-
-        if (recoveryDuration <= TimeSpan.Zero)
-        {
-            throw new InvalidOperationException("Automatic recovery duration must be greater than zero.");
-        }
-
-        Phase = ScenarioPhase.Recovering;
-
-        _recoveryStartTemperature ??= CurrentTemperature ?? normalTemperature;
-        _recoveryTargetTemperature ??= normalTemperature;
-
-        var progress = Math.Clamp(recoveryElapsed.TotalSeconds / recoveryDuration.TotalSeconds, 0.0, 1.0);
-
-        var plannedTemperature = _recoveryStartTemperature.Value + (_recoveryTargetTemperature.Value - _recoveryStartTemperature.Value) * progress;
-        
-        var previousTemperature = CurrentTemperature ?? _recoveryStartTemperature.Value;
-        var minimumAllowedTemperature = previousTemperature - _definition.MaximumRecoveryPerMeasurement;
-
-        if (progress >= 1 && _recoveryTargetTemperature.Value >= minimumAllowedTemperature)
-        {
-            return GetCompletedTemperature(_recoveryTargetTemperature.Value);
-        }
-
-        var nextRecoveryTemperature = Math.Max(plannedTemperature, minimumAllowedTemperature);
-
-        CurrentTemperature = nextRecoveryTemperature;
-        return nextRecoveryTemperature;
+        var normalTemperature = measurement.NumericValue ?? throw new InvalidOperationException("A temperature measurement must contain a numeric value.");
+        return measurement with { NumericValue = GetNextTemperature(normalTemperature, elapsed) };
     }
 }
