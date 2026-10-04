@@ -12,18 +12,18 @@ namespace AssetMonitoring.DeviceSimulator.Tests.Runtime;
 /// scenario ordering, and repeatable preparation with a supplied random source.
 /// </summary>
 /// <remarks>
-/// Tests use real runtimes and sequences through their public APIs.
-/// Every temperature call represents a new measurement. No reflection,
+/// Tests use real runtimes, metric sequences, and schedules through their public APIs.
+/// Each temperature helper call applies a fresh measurement. No reflection,
 /// HTTP requests, timers, real delays, or additional packages are required.
 /// Inputs represent validated definitions and already resolved target devices.
 /// </remarks>
-public sealed class DeviceTemperatureScenarioSequenceFactoryTests
+public sealed class DeviceScenarioScheduleFactoryTests
 {
     /// <summary>Verifies that the resolved scenario collection is required.</summary>
     [Fact]
     public void CreateWithNullResolvedScenariosThrowsArgumentNullException()
     {
-        var factory = new DeviceTemperatureScenarioSequenceFactory();
+        var factory = new DeviceScenarioScheduleFactory();
 
         var exception = Assert.Throws<ArgumentNullException>(() =>
             factory.Create(null!, new Random(42)));
@@ -35,7 +35,7 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
     [Fact]
     public void CreateWithNullRandomThrowsArgumentNullException()
     {
-        var factory = new DeviceTemperatureScenarioSequenceFactory();
+        var factory = new DeviceScenarioScheduleFactory();
 
         var exception = Assert.Throws<ArgumentNullException>(() =>
             factory.Create(Array.Empty<ResolvedScenario>(), null!));
@@ -50,7 +50,7 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
     [Fact]
     public void CreateWithEmptyPlanReturnsEmptyDictionaryWithoutUsingRandom()
     {
-        var factory = new DeviceTemperatureScenarioSequenceFactory();
+        var factory = new DeviceScenarioScheduleFactory();
         var random = new ScriptedRandom();
 
         var result = factory.Create(Array.Empty<ResolvedScenario>(), random);
@@ -63,7 +63,7 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
     [Fact]
     public void CreateWithNoResolvedDevicesReturnsEmptyDictionaryWithoutUsingRandom()
     {
-        var factory = new DeviceTemperatureScenarioSequenceFactory();
+        var factory = new DeviceScenarioScheduleFactory();
         var random = new ScriptedRandom();
         var resolved = new[]
         {
@@ -83,7 +83,7 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
     [Fact]
     public void CreateWithOneDeviceReturnsWorkingSequenceWithRetainedTarget()
     {
-        var factory = new DeviceTemperatureScenarioSequenceFactory();
+        var factory = new DeviceScenarioScheduleFactory();
         var device = CreateDevice(1);
         var random = new ScriptedRandom(0.5);
         var resolved = new[] { new ResolvedScenario(CreateDefinition(), new[] { device }) };
@@ -93,8 +93,8 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
         var entry = Assert.Single(result);
         Assert.Equal(device.Id, entry.Key);
         Assert.Equal(1, random.CallCount);
-        Assert.Equal(32.0, entry.Value.GetNextTemperature(22, TimeSpan.Zero));
-        Assert.Equal(32.0, entry.Value.GetNextTemperature(24, TimeSpan.FromSeconds(30)));
+        Assert.Equal(32.0, ReadTemperature(entry.Value, 22, TimeSpan.Zero));
+        Assert.Equal(32.0, ReadTemperature(entry.Value, 24, TimeSpan.FromSeconds(30)));
         Assert.Equal(1, random.CallCount);
     }
 
@@ -105,7 +105,7 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
     [Fact]
     public void CreateGroupsDistinctDevicesByIdInsteadOfCode()
     {
-        var factory = new DeviceTemperatureScenarioSequenceFactory();
+        var factory = new DeviceScenarioScheduleFactory();
         var first = CreateDevice(1);
         var second = CreateDevice(2) with { Code = first.Code };
         var third = CreateDevice(3);
@@ -120,7 +120,7 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
         foreach (var device in new[] { first, second, third })
         {
             Assert.True(result.ContainsKey(device.Id));
-            Assert.Equal(32.0, result[device.Id].GetNextTemperature(22, TimeSpan.Zero));
+            Assert.Equal(32.0, ReadTemperature(result[device.Id], 22, TimeSpan.Zero));
         }
     }
 
@@ -131,7 +131,7 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
     [Fact]
     public void CreateKeepsTemperatureStateIndependentBetweenDevices()
     {
-        var factory = new DeviceTemperatureScenarioSequenceFactory();
+        var factory = new DeviceScenarioScheduleFactory();
         var first = CreateDevice(1);
         var second = CreateDevice(2);
         var definition = CreateDefinition() with { MaximumRisePerMeasurement = 2 };
@@ -140,10 +140,10 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
             new FixedRandom());
 
         Assert.NotSame(result[first.Id], result[second.Id]);
-        Assert.Equal(22.0, result[first.Id].GetNextTemperature(20, TimeSpan.Zero));
-        Assert.Equal(26.0, result[second.Id].GetNextTemperature(24, TimeSpan.Zero));
-        Assert.Equal(24.0, result[first.Id].GetNextTemperature(20, TimeSpan.FromSeconds(30)));
-        Assert.Equal(28.0, result[second.Id].GetNextTemperature(24, TimeSpan.FromSeconds(30)));
+        Assert.Equal(22.0, ReadTemperature(result[first.Id], 20, TimeSpan.Zero));
+        Assert.Equal(26.0, ReadTemperature(result[second.Id], 24, TimeSpan.Zero));
+        Assert.Equal(24.0, ReadTemperature(result[first.Id], 20, TimeSpan.FromSeconds(30)));
+        Assert.Equal(28.0, ReadTemperature(result[second.Id], 24, TimeSpan.FromSeconds(30)));
     }
 
     /// <summary>
@@ -153,7 +153,7 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
     [Fact]
     public void CreateKeepsScenarioCompletionIndependentBetweenDevices()
     {
-        var factory = new DeviceTemperatureScenarioSequenceFactory();
+        var factory = new DeviceScenarioScheduleFactory();
         var first = CreateDevice(1);
         var second = CreateDevice(2);
         var result = factory.Create(
@@ -162,10 +162,10 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
 
         AssertFirstScenarioCompletes(result[first.Id], 32);
 
-        Assert.Equal(23.0, result[first.Id].GetNextTemperature(23, TimeSpan.FromSeconds(121)));
+        Assert.Equal(23.0, ReadTemperature(result[first.Id], 23, TimeSpan.FromSeconds(121)));
         // The second device starts late and must still execute its own scenario.
-        Assert.Equal(32.0, result[second.Id].GetNextTemperature(22, TimeSpan.FromSeconds(121)));
-        Assert.Equal(32.0, result[second.Id].GetNextTemperature(22, TimeSpan.FromSeconds(151)));
+        Assert.Equal(32.0, ReadTemperature(result[second.Id], 22, TimeSpan.FromSeconds(121)));
+        Assert.Equal(32.0, ReadTemperature(result[second.Id], 22, TimeSpan.FromSeconds(151)));
     }
 
     /// <summary>
@@ -175,7 +175,7 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
     [Fact]
     public void CreateGroupsMultipleScenariosForTheSameDeviceIdIntoOneSequence()
     {
-        var factory = new DeviceTemperatureScenarioSequenceFactory();
+        var factory = new DeviceScenarioScheduleFactory();
         var device = CreateDevice(1);
         var otherResponse = device with { Name = "Updated device name" };
         var resolved = new[]
@@ -190,10 +190,10 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
         Assert.Equal(device.Id, entry.Key);
         AssertFirstScenarioCompletes(entry.Value, 32);
         // The next scenario begins on a new measurement, even at the same time.
-        Assert.Equal(42.0, entry.Value.GetNextTemperature(22, TimeSpan.FromSeconds(120)));
-        Assert.Equal(42.0, entry.Value.GetNextTemperature(22, TimeSpan.FromSeconds(180)));
-        Assert.Equal(22.0, entry.Value.GetNextTemperature(22, TimeSpan.FromSeconds(240)));
-        Assert.Equal(24.0, entry.Value.GetNextTemperature(24, TimeSpan.FromSeconds(241)));
+        Assert.Equal(42.0, ReadTemperature(entry.Value, 22, TimeSpan.FromSeconds(120)));
+        Assert.Equal(42.0, ReadTemperature(entry.Value, 22, TimeSpan.FromSeconds(180)));
+        Assert.Equal(22.0, ReadTemperature(entry.Value, 22, TimeSpan.FromSeconds(240)));
+        Assert.Equal(24.0, ReadTemperature(entry.Value, 24, TimeSpan.FromSeconds(241)));
     }
 
     /// <summary>
@@ -203,7 +203,7 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
     [Fact]
     public void CreateAssignsOnlyResolvedScenariosToEachDevice()
     {
-        var factory = new DeviceTemperatureScenarioSequenceFactory();
+        var factory = new DeviceScenarioScheduleFactory();
         var first = CreateDevice(1);
         var shared = CreateDevice(2);
         var last = CreateDevice(3);
@@ -219,9 +219,9 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
         AssertFirstScenarioCompletes(result[first.Id], 32);
         AssertFirstScenarioCompletes(result[shared.Id], 32);
         AssertFirstScenarioCompletes(result[last.Id], 42);
-        Assert.Equal(24.0, result[first.Id].GetNextTemperature(24, TimeSpan.FromSeconds(121)));
-        Assert.Equal(42.0, result[shared.Id].GetNextTemperature(22, TimeSpan.FromSeconds(121)));
-        Assert.Equal(24.0, result[last.Id].GetNextTemperature(24, TimeSpan.FromSeconds(121)));
+        Assert.Equal(24.0, ReadTemperature(result[first.Id], 24, TimeSpan.FromSeconds(121)));
+        Assert.Equal(42.0, ReadTemperature(result[shared.Id], 22, TimeSpan.FromSeconds(121)));
+        Assert.Equal(24.0, ReadTemperature(result[last.Id], 24, TimeSpan.FromSeconds(121)));
     }
 
     /// <summary>
@@ -234,7 +234,7 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
     [InlineData(true)]
     public void CreatePreservesPlanOrderForEqualScenarioStartTimes(bool reverse)
     {
-        var factory = new DeviceTemperatureScenarioSequenceFactory();
+        var factory = new DeviceScenarioScheduleFactory();
         var device = CreateDevice(1);
         var cooler = new ResolvedScenario(CreateDefinition("Zeta"), new[] { device });
         var hotter = new ResolvedScenario(CreateDefinition("Alpha", 40), new[] { device });
@@ -244,7 +244,7 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
 
         AssertFirstScenarioCompletes(result[device.Id], reverse ? 42 : 32);
         Assert.Equal(reverse ? 32.0 : 42.0,
-            result[device.Id].GetNextTemperature(22, TimeSpan.FromSeconds(120)));
+            ReadTemperature(result[device.Id], 22, TimeSpan.FromSeconds(120)));
     }
 
     /// <summary>
@@ -254,7 +254,7 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
     [Fact]
     public void CreateReturnsSequenceOrderedByPlannedStartTime()
     {
-        var factory = new DeviceTemperatureScenarioSequenceFactory();
+        var factory = new DeviceScenarioScheduleFactory();
         var device = CreateDevice(1);
         var later = CreateDefinition("Later", 40) with { StartsAfter = TimeSpan.FromSeconds(120) };
         var earlier = CreateDefinition("Earlier") with { StartsAfter = TimeSpan.FromSeconds(60) };
@@ -265,14 +265,14 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
         };
 
         var result = factory.Create(resolved, new FixedRandom());
-        var sequence = result[device.Id];
+        var schedule = result[device.Id];
 
-        Assert.Equal(23.0, sequence.GetNextTemperature(23, TimeSpan.FromSeconds(59)));
-        Assert.Equal(32.0, sequence.GetNextTemperature(22, TimeSpan.FromSeconds(60)));
-        Assert.Equal(32.0, sequence.GetNextTemperature(22, TimeSpan.FromSeconds(120)));
-        Assert.Equal(22.0, sequence.GetNextTemperature(22, TimeSpan.FromSeconds(180)));
-        Assert.Equal(42.0, sequence.GetNextTemperature(22, TimeSpan.FromSeconds(181)));
-        Assert.Equal(42.0, sequence.GetNextTemperature(22, TimeSpan.FromSeconds(240)));
+        Assert.Equal(23.0, ReadTemperature(schedule, 23, TimeSpan.FromSeconds(59)));
+        Assert.Equal(32.0, ReadTemperature(schedule, 22, TimeSpan.FromSeconds(60)));
+        Assert.Equal(32.0, ReadTemperature(schedule, 22, TimeSpan.FromSeconds(120)));
+        Assert.Equal(22.0, ReadTemperature(schedule, 22, TimeSpan.FromSeconds(180)));
+        Assert.Equal(42.0, ReadTemperature(schedule, 22, TimeSpan.FromSeconds(181)));
+        Assert.Equal(42.0, ReadTemperature(schedule, 22, TimeSpan.FromSeconds(240)));
         Assert.Same(later, resolved[0].Definition);
         Assert.Same(earlier, resolved[1].Definition);
     }
@@ -284,29 +284,29 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
     [Fact]
     public void CreateOnRepeatedCallsReturnsIndependentExecutionState()
     {
-        var factory = new DeviceTemperatureScenarioSequenceFactory();
+        var factory = new DeviceScenarioScheduleFactory();
         var device = CreateDevice(1);
         var definition = CreateDefinition() with { MaximumRisePerMeasurement = 2 };
         var resolved = new[] { new ResolvedScenario(definition, new[] { device }) };
         var random = new FixedRandom();
         var first = factory.Create(resolved, random);
 
-        Assert.Equal(22.0, first[device.Id].GetNextTemperature(20, TimeSpan.Zero));
-        Assert.Equal(24.0, first[device.Id].GetNextTemperature(20, TimeSpan.FromSeconds(30)));
+        Assert.Equal(22.0, ReadTemperature(first[device.Id], 20, TimeSpan.Zero));
+        Assert.Equal(24.0, ReadTemperature(first[device.Id], 20, TimeSpan.FromSeconds(30)));
 
         var second = factory.Create(resolved, random);
 
         Assert.NotSame(first, second);
         Assert.NotSame(first[device.Id], second[device.Id]);
-        Assert.Equal(22.0, second[device.Id].GetNextTemperature(20, TimeSpan.Zero));
-        Assert.Equal(26.0, first[device.Id].GetNextTemperature(20, TimeSpan.FromSeconds(40)));
+        Assert.Equal(22.0, ReadTemperature(second[device.Id], 20, TimeSpan.Zero));
+        Assert.Equal(26.0, ReadTemperature(first[device.Id], 20, TimeSpan.FromSeconds(40)));
     }
 
     /// <summary>Verifies that later preparations do not retain devices from an earlier plan.</summary>
     [Fact]
     public void CreateAfterNonemptyPlanDoesNotRetainPreviousDevices()
     {
-        var factory = new DeviceTemperatureScenarioSequenceFactory();
+        var factory = new DeviceScenarioScheduleFactory();
         var device = CreateDevice(1);
         var first = factory.Create(
             new[] { new ResolvedScenario(CreateDefinition(), new[] { device }) },
@@ -316,7 +316,7 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
 
         Assert.Empty(second);
         Assert.Single(first);
-        Assert.Equal(32.0, first[device.Id].GetNextTemperature(22, TimeSpan.Zero));
+        Assert.Equal(32.0, ReadTemperature(first[device.Id], 22, TimeSpan.Zero));
     }
 
     /// <summary>
@@ -330,7 +330,7 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
     [InlineData(-17)]
     public void CreateWithSameSeedAndInputOrderProducesSameTemperatureTraces(int seed)
     {
-        var factory = new DeviceTemperatureScenarioSequenceFactory();
+        var factory = new DeviceScenarioScheduleFactory();
         var firstDevice = CreateDevice(1);
         var secondDevice = CreateDevice(2);
         var devices = new[] { secondDevice, firstDevice };
@@ -364,7 +364,7 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
     [Fact]
     public void CreateSelectsTargetsForEveryPairBeforeExecutionUsingSuppliedRandom()
     {
-        var factory = new DeviceTemperatureScenarioSequenceFactory();
+        var factory = new DeviceScenarioScheduleFactory();
         var first = CreateDevice(1);
         var second = CreateDevice(2);
         var random = new ScriptedRandom(0.0, 0.25, 0.5, 0.75);
@@ -379,10 +379,10 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
         Assert.Equal(4, random.CallCount);
         AssertFirstScenarioCompletes(result[first.Id], 31);
         AssertFirstScenarioCompletes(result[second.Id], 30);
-        Assert.Equal(42.0, result[first.Id].GetNextTemperature(22, TimeSpan.FromSeconds(120)));
-        Assert.Equal(43.0, result[second.Id].GetNextTemperature(22, TimeSpan.FromSeconds(120)));
-        Assert.Equal(42.0, result[first.Id].GetNextTemperature(23, TimeSpan.FromSeconds(150)));
-        Assert.Equal(43.0, result[second.Id].GetNextTemperature(24, TimeSpan.FromSeconds(150)));
+        Assert.Equal(42.0, ReadTemperature(result[first.Id], 22, TimeSpan.FromSeconds(120)));
+        Assert.Equal(43.0, ReadTemperature(result[second.Id], 22, TimeSpan.FromSeconds(120)));
+        Assert.Equal(42.0, ReadTemperature(result[first.Id], 23, TimeSpan.FromSeconds(150)));
+        Assert.Equal(43.0, ReadTemperature(result[second.Id], 24, TimeSpan.FromSeconds(150)));
         Assert.Equal(4, random.CallCount);
     }
 
@@ -393,7 +393,7 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
     [Fact]
     public void CreatePreservesInputsAndDoesNotRetainMutableInputCollections()
     {
-        var factory = new DeviceTemperatureScenarioSequenceFactory();
+        var factory = new DeviceScenarioScheduleFactory();
         var device = CreateDevice(1);
         var targets = new List<SimulatorDeviceResponse> { device };
         var first = new ResolvedScenario(CreateDefinition("Zeta"), targets);
@@ -411,7 +411,7 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
 
         Assert.Single(result);
         AssertFirstScenarioCompletes(result[device.Id], 32);
-        Assert.Equal(42.0, result[device.Id].GetNextTemperature(22, TimeSpan.FromSeconds(120)));
+        Assert.Equal(42.0, ReadTemperature(result[device.Id], 22, TimeSpan.FromSeconds(120)));
     }
 
     /// <summary>Verifies that unsupported definitions are rejected regardless of target count.</summary>
@@ -421,7 +421,7 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
     [InlineData(true)]
     public void CreateWithUnsupportedScenarioThrowsNotSupportedException(bool hasDevice)
     {
-        var factory = new DeviceTemperatureScenarioSequenceFactory();
+        var factory = new DeviceScenarioScheduleFactory();
         var devices = hasDevice ? new[] { CreateDevice(1) } : Array.Empty<SimulatorDeviceResponse>();
         var resolved = new[] { new ResolvedScenario(new UnsupportedScenarioDefinition(), devices) };
 
@@ -435,7 +435,7 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
     [Fact]
     public void CreateWithUnsupportedScenarioAfterSupportedScenarioThrows()
     {
-        var factory = new DeviceTemperatureScenarioSequenceFactory();
+        var factory = new DeviceScenarioScheduleFactory();
         var devices = new[] { CreateDevice(1) };
         var resolved = new[]
         {
@@ -450,7 +450,7 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
     [Fact]
     public void CreateWithEmptyDeviceIdPropagatesArgumentException()
     {
-        var factory = new DeviceTemperatureScenarioSequenceFactory();
+        var factory = new DeviceScenarioScheduleFactory();
         var device = CreateDevice(1) with { Id = Guid.Empty };
         var resolved = new[] { new ResolvedScenario(CreateDefinition(), new[] { device }) };
 
@@ -458,6 +458,68 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
             factory.Create(resolved, new FixedRandom()));
 
         Assert.Equal("deviceId", exception.ParamName);
+    }
+
+    /// <summary>
+    /// Verifies target selection follows plan order before metric sequences
+    /// sort scenarios by their configured start delays.
+    /// </summary>
+    [Fact]
+    public void CreateSelectsRandomTargetsBeforeSortingScenarioStartTimes()
+    {
+        var factory = new DeviceScenarioScheduleFactory();
+        var device = CreateDevice(1);
+        var later = CreateDefinition("Later", 40) with { StartsAfter = TimeSpan.FromSeconds(120) };
+        var earlier = CreateDefinition("Earlier") with { StartsAfter = TimeSpan.FromSeconds(60) };
+        var random = new ScriptedRandom(0.0, 0.75);
+        var resolved = new[]
+        {
+            new ResolvedScenario(later, new[] { device }),
+            new ResolvedScenario(earlier, new[] { device })
+        };
+
+        var result = factory.Create(resolved, random);
+        var schedule = result[device.Id];
+
+        Assert.Equal(2, random.CallCount);
+        Assert.Equal(23.0, ReadTemperature(schedule, 23, TimeSpan.FromSeconds(59)));
+        Assert.Equal(33.0, ReadTemperature(schedule, 22, TimeSpan.FromSeconds(60)));
+        Assert.Equal(33.0, ReadTemperature(schedule, 22, TimeSpan.FromSeconds(120)));
+        Assert.Equal(22.0, ReadTemperature(schedule, 22, TimeSpan.FromSeconds(180)));
+        Assert.Equal(40.0, ReadTemperature(schedule, 22, TimeSpan.FromSeconds(181)));
+        Assert.Equal(2, random.CallCount);
+    }
+
+    /// <summary>
+    /// Verifies metrics without a supported scenario pass through unchanged
+    /// and cannot advance the prepared temperature queue.
+    /// </summary>
+    /// <param name="metric">A metric without a runtime created by this factory.</param>
+    [Theory]
+    [InlineData(SimulatorTelemetryMetric.Humidity)]
+    [InlineData(SimulatorTelemetryMetric.DoorState)]
+    [InlineData(SimulatorTelemetryMetric.LightState)]
+    public void CreateProducesScheduleThatLeavesOtherMetricsUnchanged(SimulatorTelemetryMetric metric)
+    {
+        var factory = new DeviceScenarioScheduleFactory();
+        var device = CreateDevice(1);
+        var random = new ScriptedRandom(0.5);
+        var result = factory.Create(
+            new[] { new ResolvedScenario(CreateDefinition(), new[] { device }) }, random);
+        var schedule = result[device.Id];
+        var measurement = new SimulatorTelemetryMeasurementRequest(
+            Guid.NewGuid(), metric,
+            metric == SimulatorTelemetryMetric.Humidity ? 80.0 : null,
+            metric == SimulatorTelemetryMetric.Humidity ? null : false,
+            new DateTime(2026, 10, 4, 12, 0, 0, DateTimeKind.Utc));
+
+        var unchanged = schedule.Apply(measurement, TimeSpan.FromSeconds(600));
+
+        Assert.Equal(device.Id, schedule.DeviceId);
+        Assert.Same(measurement, unchanged);
+        // The first temperature measurement still starts its own scenario.
+        Assert.Equal(32.0, ReadTemperature(schedule, 22, TimeSpan.FromSeconds(600)));
+        Assert.Equal(1, random.CallCount);
     }
 
     /// <summary>
@@ -492,33 +554,53 @@ public sealed class DeviceTemperatureScenarioSequenceFactoryTests
             new[] { SimulatorDeviceCapability.Temperature },
             SimulatorDeviceLifecycle.Active);
 
+    /// <summary>Applies a fresh temperature measurement and verifies its identity fields are preserved.</summary>
+    /// <param name="schedule">The device schedule to advance.</param>
+    /// <param name="normalTemperature">The normal temperature supplied for this measurement.</param>
+    /// <param name="elapsed">The shared elapsed simulation time.</param>
+    /// <returns>The numeric temperature returned by the prepared schedule.</returns>
+    private static double ReadTemperature(DeviceScenarioSchedule schedule, double normalTemperature, TimeSpan elapsed)
+    {
+        var measurement = new SimulatorTelemetryMeasurementRequest(
+            Guid.NewGuid(), SimulatorTelemetryMetric.Temperature, normalTemperature, null,
+            new DateTime(2026, 10, 4, 12, 0, 0, DateTimeKind.Utc));
+
+        var result = schedule.Apply(measurement, elapsed);
+
+        Assert.Equal(measurement.MeasurementId, result.MeasurementId);
+        Assert.Equal(measurement.Metric, result.Metric);
+        Assert.Equal(measurement.MeasuredAtUtc, result.MeasuredAtUtc);
+        Assert.Null(result.StateValue);
+        return Assert.IsType<double>(result.NumericValue);
+    }
+
     /// <summary>
     /// Verifies the active value, recovery entry, and completion of the first
     /// scenario without advancing to the next scenario within the completion call.
     /// </summary>
-    /// <param name="sequence">A fresh sequence whose first scenario starts at zero.</param>
+    /// <param name="schedule">A fresh schedule whose first temperature scenario starts at zero.</param>
     /// <param name="target">The expected first scenario target.</param>
     private static void AssertFirstScenarioCompletes(
-        DeviceTemperatureScenarioSequence sequence, double target)
+        DeviceScenarioSchedule schedule, double target)
     {
-        Assert.Equal(target, sequence.GetNextTemperature(22, TimeSpan.Zero));
-        Assert.Equal(target, sequence.GetNextTemperature(22, TimeSpan.FromSeconds(60)));
-        Assert.Equal(22.0, sequence.GetNextTemperature(22, TimeSpan.FromSeconds(120)));
+        Assert.Equal(target, ReadTemperature(schedule, 22, TimeSpan.Zero));
+        Assert.Equal(target, ReadTemperature(schedule, 22, TimeSpan.FromSeconds(60)));
+        Assert.Equal(22.0, ReadTemperature(schedule, 22, TimeSpan.FromSeconds(120)));
     }
 
     /// <summary>Reads two consecutive scenarios and one normal measurement after completion.</summary>
-    /// <param name="sequence">A fresh sequence with two zero-start scenarios.</param>
+    /// <param name="schedule">A fresh schedule with two zero-start temperature scenarios.</param>
     /// <returns>The active, recovery-entry, completion, and final normal values.</returns>
-    private static double[] ReadTwoScenarioTrace(DeviceTemperatureScenarioSequence sequence) =>
+    private static double[] ReadTwoScenarioTrace(DeviceScenarioSchedule schedule) =>
         new[]
         {
-            sequence.GetNextTemperature(22, TimeSpan.Zero),
-            sequence.GetNextTemperature(22, TimeSpan.FromSeconds(60)),
-            sequence.GetNextTemperature(22, TimeSpan.FromSeconds(120)),
-            sequence.GetNextTemperature(22, TimeSpan.FromSeconds(120)),
-            sequence.GetNextTemperature(22, TimeSpan.FromSeconds(180)),
-            sequence.GetNextTemperature(22, TimeSpan.FromSeconds(240)),
-            sequence.GetNextTemperature(24, TimeSpan.FromSeconds(241))
+            ReadTemperature(schedule, 22, TimeSpan.Zero),
+            ReadTemperature(schedule, 22, TimeSpan.FromSeconds(60)),
+            ReadTemperature(schedule, 22, TimeSpan.FromSeconds(120)),
+            ReadTemperature(schedule, 22, TimeSpan.FromSeconds(120)),
+            ReadTemperature(schedule, 22, TimeSpan.FromSeconds(180)),
+            ReadTemperature(schedule, 22, TimeSpan.FromSeconds(240)),
+            ReadTemperature(schedule, 24, TimeSpan.FromSeconds(241))
         };
 
     /// <summary>Provides an unknown subtype for supported-type guard tests.</summary>

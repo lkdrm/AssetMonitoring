@@ -28,7 +28,7 @@ public sealed class SimulationWorker : BackgroundService
     private readonly DeviceHeartbeatCoordinator _heartbeatCoordinator;
     private readonly DeviceTelemetryCoordinator _telemetryCoordinator;
     private readonly SimulationPlanResolver _planResolver;
-    private readonly DeviceTemperatureScenarioSequenceFactory _deviceTemperatureScenarioSequence;
+    private readonly DeviceScenarioScheduleFactory _deviceScenarioScheduleFactory;
     private readonly TimeProvider _time;
 
     /// <summary>
@@ -67,9 +67,10 @@ public sealed class SimulationWorker : BackgroundService
     /// The resolver used to associate simulation scenarios
     /// with compatible prepared devices.
     /// </param>
-    /// <param name="deviceTemperatureScenarioSequence">
-    /// The factory used to create independent temperature scenario
-    /// sequences for selected devices before execution starts.
+    /// <param name="deviceScenarioScheduleFactory">
+    /// The factory used to prepare independent scenario schedules
+    /// for selected devices before telemetry execution starts.
+    /// Each schedule contains one sequence per affected telemetry metric.
     /// </param>
     /// <param name="time">
     /// The shared time provider used to capture the simulation start timestamp.
@@ -81,7 +82,7 @@ public sealed class SimulationWorker : BackgroundService
     /// </exception>
     public SimulationWorker(ILogger<SimulationWorker> logger, SimulationPlanLoader planLoader, IOptions<DeviceSimulatorOptions> options, IHostApplicationLifetime applicationLifetime,
         IDeviceSimulatorApiClient apiClient, DevicePreparationService devicePreparationService, DeviceHeartbeatCoordinator heartbeatCoordinator, DeviceTelemetryCoordinator telemetryCoordinator
-        , SimulationPlanResolver planResolver, DeviceTemperatureScenarioSequenceFactory deviceTemperatureScenarioSequence, TimeProvider time)
+        , SimulationPlanResolver planResolver, DeviceScenarioScheduleFactory deviceScenarioScheduleFactory, TimeProvider time)
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(planLoader);
@@ -92,7 +93,7 @@ public sealed class SimulationWorker : BackgroundService
         ArgumentNullException.ThrowIfNull(heartbeatCoordinator);
         ArgumentNullException.ThrowIfNull(telemetryCoordinator);
         ArgumentNullException.ThrowIfNull(planResolver);
-        ArgumentNullException.ThrowIfNull(deviceTemperatureScenarioSequence);
+        ArgumentNullException.ThrowIfNull(deviceScenarioScheduleFactory);
         ArgumentNullException.ThrowIfNull(time);
 
         _logger = logger;
@@ -104,7 +105,7 @@ public sealed class SimulationWorker : BackgroundService
         _heartbeatCoordinator = heartbeatCoordinator;
         _telemetryCoordinator = telemetryCoordinator;
         _planResolver = planResolver;
-        _deviceTemperatureScenarioSequence = deviceTemperatureScenarioSequence;
+        _deviceScenarioScheduleFactory = deviceScenarioScheduleFactory;
         _time = time;
     }
 
@@ -171,7 +172,7 @@ public sealed class SimulationWorker : BackgroundService
         }
 
         var random = plan.Seed.HasValue ? new Random(plan.Seed.Value) : new Random();
-        var sequencesByDevice = TryCreateTemperatureScenarioSequences(resolvedScenarios, random);
+        var sequencesByDevice = TryCreateScenarioSchedules(resolvedScenarios, random);
         if (sequencesByDevice is null)
         {
             return;
@@ -440,7 +441,7 @@ public sealed class SimulationWorker : BackgroundService
     }
 
     /// <summary>
-    /// Attempts to create per-device temperature scenario sequences
+    /// Attempts to create per-device scenario schedules
     /// from resolved scenarios.
     /// Logs the preparation result and requests application shutdown
     /// when an expected creation failure occurs.
@@ -450,27 +451,27 @@ public sealed class SimulationWorker : BackgroundService
     /// definitions and the devices selected for each scenario.
     /// </param>
     /// <param name="random">
-    /// The random source used to select abnormal temperature targets
+    /// The random source used to select abnormal measurement targets
     /// while creating independent scenario runtimes.
     /// </param>
     /// <returns>
-    /// A dictionary of temperature scenario sequences keyed by device
-    /// identifier, or null when an expected creation failure occurs.
-    /// An empty dictionary is a successful result when no
-    /// scenario-device pairs exist.
+    /// A dictionary of scenario schedules keyed by device identifier,
+    /// or null when an expected creation failure occurs.
+    /// An empty dictionary is a successful preparation result.
     /// </returns>
     /// <remarks>
     /// Call once during startup, before starting heartbeat or telemetry loops.
     /// Unexpected exceptions propagate to the caller.
     /// </remarks>
-    private IReadOnlyDictionary<Guid, DeviceTemperatureScenarioSequence>? TryCreateTemperatureScenarioSequences(IReadOnlyList<ResolvedScenario> resolvedScenarios, Random random)
+    private IReadOnlyDictionary<Guid, DeviceScenarioSchedule>? TryCreateScenarioSchedules(IReadOnlyList<ResolvedScenario> resolvedScenarios, Random random)
     {
         try
         {
-            var result = _deviceTemperatureScenarioSequence.Create(resolvedScenarios, random);
-            _logger.LogInformation("Temperature scenario preparation completed. " + "Resolved scenarios: {ScenarioCount}, devices with sequences: {DeviceCount}.",
-                resolvedScenarios.Count,
-                result.Count);
+            var result = _deviceScenarioScheduleFactory.Create(resolvedScenarios, random);
+
+            _logger.LogInformation("Scenario schedule preparation completed. Resolved scenarios: {ScenarioCount}, devices with schedules: {DeviceCount}.",
+                resolvedScenarios.Count, result.Count);
+
             return result;
         }
         catch (Exception exception) when (exception
@@ -478,7 +479,7 @@ public sealed class SimulationWorker : BackgroundService
             or InvalidOperationException
             or NotSupportedException)
         {
-            _logger.LogError(exception, "Temperature scenario sequences could not be created. " + "Simulation startup will stop.");
+            _logger.LogError( exception,"Scenario schedules could not be created. Simulation startup will stop.");
 
             _applicationLifetime.StopApplication();
             return null;

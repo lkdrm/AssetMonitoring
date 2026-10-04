@@ -192,8 +192,12 @@ public sealed class SimulationPlanValidatorTests
             "scenarios[0].recoveryDuration");
     }
 
+    /// <summary>
+    /// Verifies that disabled automatic recovery and an unexpected
+    /// recovery duration are both reported.
+    /// </summary>
     [Fact]
-    public void ValidateWithoutAutomaticRecoveryAndWithDurationReturnsUnexpectedRecoveryDurationError()
+    public void ValidateWithoutAutomaticRecoveryAndWithDurationReturnsBothErrors()
     {
         var scenario = CreateValidScenario() with
         {
@@ -203,10 +207,19 @@ public sealed class SimulationPlanValidatorTests
 
         var result = _validator.Validate(CreatePlan(scenario));
 
-        AssertSingleError(
-            result,
-            "Scenario.RecoveryDuration.Unexpected",
-            "scenarios[0].recoveryDuration");
+        Assert.False(result.IsValid);
+        Assert.Equal(2, result.Errors.Count);
+
+        Assert.Contains(result.Errors, error =>
+            error.Code == "Scenario.AutoRecover.NotSupported" &&
+            error.Path == "scenarios[0].autoRecover");
+
+        Assert.Contains(result.Errors, error =>
+            error.Code == "Scenario.RecoveryDuration.Unexpected" &&
+            error.Path == "scenarios[0].recoveryDuration");
+
+        Assert.All(result.Errors, error =>
+            Assert.False(string.IsNullOrWhiteSpace(error.Message)));
     }
 
     [Fact]
@@ -497,8 +510,12 @@ public sealed class SimulationPlanValidatorTests
             "scenarios[0].maximumRecoveryPerMeasurement");
     }
 
+    /// <summary>
+    /// Verifies that disabled automatic recovery is rejected
+    /// without reporting an error for its unused recovery limit.
+    /// </summary>
     [Fact]
-    public void ValidateWithoutAutomaticRecoveryIgnoresUnusedMaximumRecoveryValue()
+    public void ValidateWithoutAutomaticRecoveryAndUnusedMaximumRecoveryReturnsNotSupportedError()
     {
         var scenario = CreateValidScenario() with
         {
@@ -509,8 +526,10 @@ public sealed class SimulationPlanValidatorTests
 
         var result = _validator.Validate(CreatePlan(scenario));
 
-        Assert.True(result.IsValid);
-        Assert.Empty(result.Errors);
+        AssertSingleError(
+            result,
+            "Scenario.AutoRecover.NotSupported",
+            "scenarios[0].autoRecover");
     }
 
     [Fact]

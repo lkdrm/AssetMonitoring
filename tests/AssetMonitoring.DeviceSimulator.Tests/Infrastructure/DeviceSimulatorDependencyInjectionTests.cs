@@ -90,7 +90,9 @@ public sealed class DeviceSimulatorDependencyInjectionTests
         AssertSingletonAcrossScopes<SimulationPlanLoader>();
     }
 
-    /// <summary>Verifies that preparation and runtime services can be constructed together.</summary>
+    /// <summary>
+    /// Verifies that preparation and runtime services can be constructed together.
+    /// </summary>
     [Fact]
     public void AddDeviceSimulatorResolvesPreparationAndRuntimeServices()
     {
@@ -100,8 +102,8 @@ public sealed class DeviceSimulatorDependencyInjectionTests
         Assert.IsType<DevicePreparationService>(provider.GetRequiredService<DevicePreparationService>());
         Assert.IsType<ScenarioTargetResolver>(provider.GetRequiredService<ScenarioTargetResolver>());
         Assert.IsType<SimulationPlanResolver>(provider.GetRequiredService<SimulationPlanResolver>());
-        Assert.IsType<DeviceTemperatureScenarioSequenceFactory>(
-            provider.GetRequiredService<DeviceTemperatureScenarioSequenceFactory>());
+        Assert.IsType<DeviceScenarioScheduleFactory>(
+            provider.GetRequiredService<DeviceScenarioScheduleFactory>());
         Assert.IsType<NormalTelemetryGenerator>(provider.GetRequiredService<NormalTelemetryGenerator>());
         Assert.IsType<DeviceHeartbeatRunner>(provider.GetRequiredService<DeviceHeartbeatRunner>());
         Assert.IsType<DeviceHeartbeatCoordinator>(provider.GetRequiredService<DeviceHeartbeatCoordinator>());
@@ -109,11 +111,14 @@ public sealed class DeviceSimulatorDependencyInjectionTests
         Assert.IsType<DeviceTelemetryCoordinator>(provider.GetRequiredService<DeviceTelemetryCoordinator>());
     }
 
-    /// <summary>Verifies that the stateless sequence factory is shared across resolutions and scopes.</summary>
+    /// <summary>
+    /// Verifies that the stateless schedule factory is shared
+    /// across resolutions and scopes.
+    /// </summary>
     [Fact]
-    public void AddDeviceSimulatorSharesSequenceFactoryAcrossScopes()
+    public void AddDeviceSimulatorSharesScheduleFactoryAcrossScopes()
     {
-        AssertSingletonAcrossScopes<DeviceTemperatureScenarioSequenceFactory>();
+        AssertSingletonAcrossScopes<DeviceScenarioScheduleFactory>();
     }
 
     /// <summary>Verifies that worker and runner dependencies resolve one shared time provider.</summary>

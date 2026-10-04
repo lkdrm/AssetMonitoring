@@ -16,7 +16,7 @@ namespace AssetMonitoring.DeviceSimulator.Tests.Runtime;
 
 /// <summary>
 /// Verifies concurrent telemetry coordination, failure isolation, cancellation,
-/// completion, per-device scenario routing, and shared simulation time using
+/// completion, per-device schedule routing, and shared simulation time using
 /// the real runner and generator with a fake API and controlled time.
 /// </summary>
 /// <remarks>
@@ -408,16 +408,16 @@ public sealed class DeviceTelemetryCoordinatorTests
         AssertCancellationLog(harness.Logger, runningDevice);
     }
 
-    /// <summary>Verifies that a missing sequence dictionary is rejected before execution.</summary>
+    /// <summary>Verifies that a missing schedule dictionary is rejected before execution.</summary>
     [Fact]
-    public async Task RunAsyncWithNullSequencesThrowsArgumentNullException()
+    public async Task RunAsyncWithNullScheduleDictionaryThrowsArgumentNullException()
     {
         await using var harness = new CoordinatorHarness();
 
         var operation = harness.Start(new[] { CreateDevice(1) }, null!, harness.Clock.GetTimestamp());
         var exception = await Assert.ThrowsAsync<ArgumentNullException>(() => AwaitAsync(operation));
 
-        Assert.Equal("sequencesByDevice", exception.ParamName);
+        Assert.Equal("schedule", exception.ParamName);
         Assert.Empty(harness.Client.Requests);
         Assert.Empty(harness.Logger.Entries);
         Assert.Equal(0, harness.Clock.TimerCount);
@@ -428,7 +428,7 @@ public sealed class DeviceTelemetryCoordinatorTests
     /// normal telemetry for an untargeted device, and no execution for absent devices.
     /// </summary>
     [Fact]
-    public async Task RunAsyncMapsSequencesByDeviceIdAndLeavesUntargetedDevicesNormal()
+    public async Task RunAsyncMapsSchedulesByDeviceIdAndLeavesUntargetedDevicesNormal()
     {
         await using var harness = new CoordinatorHarness();
         var first = CreateDevice(1);
@@ -438,14 +438,14 @@ public sealed class DeviceTelemetryCoordinatorTests
         var firstScenario = CreateScenario(first.Id, 50);
         var secondScenario = CreateScenario(second.Id, 60);
         var absentScenario = CreateScenario(absent.Id, 70);
-        var sequences = new Dictionary<Guid, DeviceTemperatureScenarioSequence>
+        var schedulesByDevice = new Dictionary<Guid, DeviceScenarioSchedule>
         {
-            [second.Id] = new(second.Id, new[] { secondScenario }),
-            [absent.Id] = new(absent.Id, new[] { absentScenario }),
-            [first.Id] = new(first.Id, new[] { firstScenario })
+            [second.Id] = CreateSchedule(second.Id, secondScenario),
+            [absent.Id] = CreateSchedule(absent.Id, absentScenario),
+            [first.Id] = CreateSchedule(first.Id, firstScenario)
         };
 
-        var operation = harness.Start(new[] { first, second, untargeted }, sequences,
+        var operation = harness.Start(new[] { first, second, untargeted }, schedulesByDevice,
             harness.Clock.GetTimestamp());
         for (var index = 0; index < 3; index++)
         {
@@ -484,17 +484,15 @@ public sealed class DeviceTelemetryCoordinatorTests
             }
             return Task.FromResult(CreateResponse(measurement));
         }, clock: clock);
-        var sequences = new Dictionary<Guid, DeviceTemperatureScenarioSequence>
+        var schedulesByDevice = new Dictionary<Guid, DeviceScenarioSchedule>
         {
-            [first.Id] = new(first.Id,
-                new[] { CreateScenario(first.Id, 50, TimeSpan.FromMinutes(1)) }),
-            [second.Id] = new(second.Id,
-                new[] { CreateScenario(second.Id, 60, TimeSpan.FromMinutes(1)) })
+            [first.Id] = CreateSchedule(first.Id, CreateScenario(first.Id, 50, TimeSpan.FromMinutes(1))),
+            [second.Id] = CreateSchedule(second.Id, CreateScenario(second.Id, 60, TimeSpan.FromMinutes(1)))
         };
         var simulationStartedAt = clock.GetTimestamp();
         clock.Advance(TimeSpan.FromMinutes(2));
 
-        var operation = harness.Start(new[] { first, second }, sequences, simulationStartedAt);
+        var operation = harness.Start(new[] { first, second }, schedulesByDevice, simulationStartedAt);
         await clock.WaitForDelayAsync();
         await clock.WaitForDelayAsync();
 
@@ -510,18 +508,18 @@ public sealed class DeviceTelemetryCoordinatorTests
 
     /// <summary>Verifies that cancellation before startup leaves supplied scenario state untouched.</summary>
     [Fact]
-    public async Task RunAsyncWithCanceledTokenDoesNotAdvanceSequences()
+    public async Task RunAsyncWithCanceledTokenDoesNotAdvanceScenarios()
     {
         await using var harness = new CoordinatorHarness();
         var device = CreateDevice(1);
         var scenario = CreateScenario(device.Id, 50);
-        var sequences = new Dictionary<Guid, DeviceTemperatureScenarioSequence>
+        var schedulesByDevice = new Dictionary<Guid, DeviceScenarioSchedule>
         {
-            [device.Id] = new(device.Id, new[] { scenario })
+            [device.Id] = CreateSchedule(device.Id, scenario)
         };
         await harness.Cancellation.CancelAsync();
 
-        await AwaitAsync(harness.Start(new[] { device }, sequences, harness.Clock.GetTimestamp()));
+        await AwaitAsync(harness.Start(new[] { device }, schedulesByDevice, harness.Clock.GetTimestamp()));
 
         Assert.Empty(harness.Client.Requests);
         Assert.Equal(ScenarioPhase.Pending, scenario.Phase);
@@ -539,13 +537,13 @@ public sealed class DeviceTelemetryCoordinatorTests
         await using var harness = new CoordinatorHarness();
         var failing = CreateDevice(1);
         var healthy = CreateDevice(2);
-        var sequences = new Dictionary<Guid, DeviceTemperatureScenarioSequence>
+        var schedulesByDevice = new Dictionary<Guid, DeviceScenarioSchedule>
         {
-            [failing.Id] = new(failing.Id, new[] { CreateScenario(failing.Id, 50, autoRecover: false) }),
-            [healthy.Id] = new(healthy.Id, new[] { CreateScenario(healthy.Id, 60) })
+            [failing.Id] = CreateSchedule(failing.Id, CreateScenario(failing.Id, 50, autoRecover: false)),
+            [healthy.Id] = CreateSchedule(healthy.Id, CreateScenario(healthy.Id, 60))
         };
 
-        var operation = harness.Start(new[] { failing, healthy }, sequences, harness.Clock.GetTimestamp());
+        var operation = harness.Start(new[] { failing, healthy }, schedulesByDevice, harness.Clock.GetTimestamp());
         await harness.Clock.WaitForDelayAsync();
         var failure = Assert.Single(harness.Logger.Entries);
         AssertFailureLog(failure, failing, Assert.IsType<NotSupportedException>(failure.Exception));
@@ -569,18 +567,18 @@ public sealed class DeviceTelemetryCoordinatorTests
 
     /// <summary>Verifies that the same supplied queue advances across telemetry cycles.</summary>
     [Fact]
-    public async Task RunAsyncExecutesSuccessiveScenariosFromTheSuppliedSequence()
+    public async Task RunAsyncExecutesSuccessiveScenariosFromTheSuppliedSchedule()
     {
         await using var harness = new CoordinatorHarness();
         var device = CreateDevice(1);
         var first = CreateScenario(device.Id, 50);
         var second = CreateScenario(device.Id, 60);
-        var sequences = new Dictionary<Guid, DeviceTemperatureScenarioSequence>
+        var schedulesByDevice = new Dictionary<Guid, DeviceScenarioSchedule>
         {
-            [device.Id] = new(device.Id, new[] { first, second })
+            [device.Id] = CreateSchedule(device.Id, first, second)
         };
 
-        var operation = harness.Start(new[] { device }, sequences, harness.Clock.GetTimestamp());
+        var operation = harness.Start(new[] { device }, schedulesByDevice, harness.Clock.GetTimestamp());
         await harness.Clock.WaitForDelayAsync();
         for (var index = 0; index < 4; index++)
         {
@@ -599,6 +597,22 @@ public sealed class DeviceTelemetryCoordinatorTests
 
         await harness.Cancellation.CancelAsync();
         await AwaitAsync(operation);
+    }
+
+    /// <summary>
+    /// Creates a device schedule containing one temperature sequence
+    /// from existing, independently observable runtimes.
+    /// </summary>
+    /// <param name="deviceId">The device that owns the runtimes and schedule.</param>
+    /// <param name="scenarios">The existing runtimes to retain and execute in planned start order.</param>
+    /// <returns>A schedule passed to the production coordinator.</returns>
+    private static DeviceScenarioSchedule CreateSchedule(
+        Guid deviceId, params HighTemperatureScenarioRuntime[] scenarios)
+    {
+        var sequence = new DeviceMetricScenarioSequence(
+            deviceId, SimulatorTelemetryMetric.Temperature, scenarios);
+
+        return new DeviceScenarioSchedule(deviceId, new[] { sequence });
     }
 
     /// <summary>Creates a scenario with an exact abnormal target and a fast temperature transition.</summary>
@@ -750,17 +764,17 @@ public sealed class DeviceTelemetryCoordinatorTests
         /// <param name="devices">The supplied device collection.</param>
         /// <returns>The task representing all device loops.</returns>
         public Task Start(IReadOnlyList<SimulatorDeviceResponse> devices)
-            => Start(devices, new Dictionary<Guid, DeviceTemperatureScenarioSequence>(), Clock.GetTimestamp());
+            => Start(devices, new Dictionary<Guid, DeviceScenarioSchedule>(), Clock.GetTimestamp());
 
-        /// <summary>Starts coordination with prepared sequences and a shared simulation timestamp.</summary>
+        /// <summary>Starts coordination with prepared schedules and a shared simulation timestamp.</summary>
         /// <param name="devices">The supplied device collection.</param>
-        /// <param name="sequences">The sequences keyed by device identifier.</param>
+        /// <param name="schedulesByDevice">The schedules keyed by device identifier.</param>
         /// <param name="simulationStartedAt">The timestamp captured using the runner's clock.</param>
         /// <returns>The tracked task representing all device loops.</returns>
         public Task Start(IReadOnlyList<SimulatorDeviceResponse> devices,
-            IReadOnlyDictionary<Guid, DeviceTemperatureScenarioSequence> sequences, long simulationStartedAt)
+            IReadOnlyDictionary<Guid, DeviceScenarioSchedule> schedulesByDevice, long simulationStartedAt)
         {
-            var operation = Coordinator.RunAsync(devices, sequences, simulationStartedAt, Cancellation.Token);
+            var operation = Coordinator.RunAsync(devices, schedulesByDevice, simulationStartedAt, Cancellation.Token);
             _operations.Add(operation);
             return operation;
         }

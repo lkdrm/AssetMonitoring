@@ -98,67 +98,52 @@ public sealed class DeviceTelemetryRunner
         => RunAsync(device, null, _timeProvider.GetTimestamp(), cancellationToken);
 
     /// <summary>
-    /// Generates and sends telemetry for one active device, applying the device's
-    /// queue of temperature scenarios to its temperature measurements.
-    /// The first cycle starts immediately. Subsequent cycles start after
-    /// the configured delay following completion of the previous cycle.
+    /// Generates and sends telemetry repeatedly for one active device,
+    /// optionally applying its scenario schedule.
     /// </summary>
+    /// <remarks>
+    /// Each new measurement is transformed once before delivery retries.
+    /// Retries reuse the prepared outgoing measurement without advancing
+    /// the scenario schedule again.
+    /// Measurements are sent sequentially within each generated batch.
+    /// The configured telemetry interval is awaited after each batch.
+    /// Cancellation and terminal failures propagate to the caller.
+    /// </remarks>
     /// <param name="device">
-    /// The active device whose capabilities determine the generated measurements.
+    /// The prepared active device whose telemetry is generated.
+    /// Its identifier must be nonempty.
     /// </param>
-    /// <param name="scenarioSequence">
-    /// The device's ordered temperature scenario queue, or null to generate
-    /// normal telemetry only.
+    /// <param name="schedule">
+    /// The optional scenario schedule prepared for this device.
+    /// Null leaves the generated measurements unchanged.
     /// </param>
     /// <param name="simulationStartedAt">
-    /// The simulation start timestamp obtained from the same time provider
-    /// used by this runner. Share this timestamp across device loops
-    /// to give their scenarios a common execution timeline.
-    /// This value is a timestamp from GetTimestamp, not UTC date-time ticks.
+    /// The shared simulation start timestamp obtained from GetTimestamp(),
+    /// using the same TimeProvider as this runner.
+    /// It is used to calculate elapsed simulation time before applying
+    /// scenarios to each new measurement.
     /// </param>
     /// <param name="cancellationToken">
-    /// A token used to stop telemetry requests, retry delays, and interval delays.
+    /// A token used to stop generation, delivery retries, and interval waits.
     /// </param>
     /// <returns>
-    /// A task representing the lifetime of the telemetry loop.
-    /// Completes when the device has no telemetry capabilities.
+    /// A task representing the device telemetry loop.
+    /// Completes normally when the generator returns no measurements;
+    /// otherwise, runs until cancellation or a terminal failure.
     /// </returns>
     /// <exception cref="ArgumentNullException">
     /// Thrown when <paramref name="device"/> is null.
     /// </exception>
     /// <exception cref="ArgumentException">
-    /// Thrown when the device identifier is empty or its capabilities are null.
-    /// </exception>
-    /// <exception cref="ArgumentOutOfRangeException">
-    /// Thrown when an applicable scenario receives a nonfinite temperature
-    /// or a negative elapsed time.
+    /// Thrown when the device identifier is empty.
     /// </exception>
     /// <exception cref="InvalidOperationException">
-    /// Thrown when the device is not active, a capability is unsupported,
-    /// an applicable temperature measurement has no numeric value,
-    /// or the scenario reaches recovery with a missing or nonpositive duration.
-    /// </exception>
-    /// <exception cref="NotSupportedException">
-    /// Thrown when an applicable scenario has automatic recovery disabled.
-    /// </exception>
-    /// <exception cref="HttpRequestException">
-    /// Thrown when a nonretryable HTTP failure occurs or transient HTTP
-    /// failures reach the configured failure limit.
-    /// </exception>
-    /// <exception cref="System.Text.Json.JsonException">
-    /// Thrown when a telemetry response is invalid.
+    /// Thrown when the device is not active.
     /// </exception>
     /// <exception cref="OperationCanceledException">
-    /// Thrown when execution is canceled, or request timeouts or independent
-    /// request cancellations reach the configured failure limit.
+    /// Thrown when cancellation is requested.
     /// </exception>
-    /// <exception cref="TimeZoneNotFoundException">
-    /// Thrown when the configured warehouse time zone cannot be found.
-    /// </exception>
-    /// <exception cref="InvalidTimeZoneException">
-    /// Thrown when the configured warehouse time zone data is invalid.
-    /// </exception>
-    public async Task RunAsync(SimulatorDeviceResponse device, DeviceTemperatureScenarioSequence? scenarioSequence, long simulationStartedAt, CancellationToken cancellationToken = default)
+    public async Task RunAsync(SimulatorDeviceResponse device, DeviceScenarioSchedule? schedule, long simulationStartedAt, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(device);
 
@@ -194,7 +179,7 @@ public sealed class DeviceTelemetryRunner
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var elapsed = _timeProvider.GetElapsedTime(simulationStartedAt);
-                var outgoingMeasurement = ApplyTemperatureScenarios(measurement, scenarioSequence, elapsed);
+                var outgoingMeasurement = schedule?.Apply(measurement, elapsed) ?? measurement;
                 var result = await SendMeasurementWithRetryAsync(device, outgoingMeasurement, cancellationToken);
 
                 _logger.LogInformation("Telemetry request completed for device {DeviceCode} ({DeviceId}). Metric: {Metric}, Measurement ID: {MeasurementId}, Recorded: {Recorded}.",
@@ -259,57 +244,5 @@ public sealed class DeviceTelemetryRunner
 
             await Task.Delay(retryDelay, _timeProvider, cancellationToken);
         }
-    }
-
-    /// <summary>
-    /// Applies the device's temperature scenario sequence to a temperature measurement.
-    /// Other metrics and measurements without a sequence are returned unchanged.
-    /// </summary>
-    /// <remarks>
-    /// Invoke once per new measurement, before sending it.
-    /// HTTP retries must reuse the resulting measurement without advancing
-    /// the sequence again.
-    /// </remarks>
-    /// <param name="measurement">
-    /// The generated telemetry measurement to process.
-    /// </param>
-    /// <param name="scenarioSequence">
-    /// The device's temperature scenario sequence, or null to leave
-    /// the measurement unchanged.
-    /// </param>
-    /// <param name="elapsed">
-    /// The elapsed time since simulation execution began.
-    /// Supply nondecreasing values for successive calls to the same sequence.
-    /// </param>
-    /// <returns>
-    /// A copy with the numeric value returned by the sequence when processing
-    /// a temperature measurement with a nonnull sequence;
-    /// otherwise, the original measurement.
-    /// All other measurement properties are preserved.
-    /// </returns>
-    /// <exception cref="InvalidOperationException">
-    /// Thrown when a temperature measurement processed by the sequence
-    /// has no numeric value, or the current scenario reaches recovery
-    /// with a missing or nonpositive recovery duration.
-    /// </exception>
-    /// <exception cref="ArgumentOutOfRangeException">
-    /// Thrown when a temperature measurement is processed by the sequence
-    /// and its numeric value is not finite or the elapsed time is negative.
-    /// </exception>
-    /// <exception cref="NotSupportedException">
-    /// Thrown when the sequence attempts to run a scenario
-    /// with automatic recovery disabled.
-    /// </exception>
-    private static SimulatorTelemetryMeasurementRequest ApplyTemperatureScenarios(SimulatorTelemetryMeasurementRequest measurement, DeviceTemperatureScenarioSequence? scenarioSequence, TimeSpan elapsed)
-    {
-        if (scenarioSequence == null || measurement.Metric != SimulatorTelemetryMetric.Temperature)
-        {
-            return measurement;
-        }
-
-        var normalTemperature = measurement.NumericValue ?? throw new InvalidOperationException("A temperature measurement must contain a numeric value.");
-
-        var nextTemperature = scenarioSequence.GetNextTemperature(normalTemperature, elapsed);
-        return measurement with { NumericValue = nextTemperature };
     }
 }

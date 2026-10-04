@@ -685,7 +685,7 @@ public sealed class DeviceTelemetryRunnerTests
             ScenarioPhase.Active, ScenarioPhase.Active,
             ScenarioPhase.Recovering, ScenarioPhase.Completed, ScenarioPhase.Completed
         };
-        var operation = harness.Start(device, CreateSequence(device.Id, scenario), harness.Clock.GetTimestamp());
+        var operation = harness.Start(device, CreateSchedule(device.Id, scenario), harness.Clock.GetTimestamp());
 
         for (var cycle = 0; cycle < expectedPhases.Length; cycle++)
         {
@@ -743,7 +743,7 @@ public sealed class DeviceTelemetryRunnerTests
         Assert.Equal(24.0, scenario.GetNextTemperature(24, TimeSpan.Zero));
         var simulationStartedAt = harness.Clock.GetTimestamp();
         harness.Clock.Advance(TimeSpan.FromMinutes(1));
-        _ = harness.Start(device, CreateSequence(device.Id, scenario), simulationStartedAt);
+        _ = harness.Start(device, CreateSchedule(device.Id, scenario), simulationStartedAt);
 
         for (var cycle = 0; cycle < 2; cycle++)
         {
@@ -796,7 +796,7 @@ public sealed class DeviceTelemetryRunnerTests
             device.Id, new FixedScenarioRandom());
         var simulationStartedAt = harness.Clock.GetTimestamp();
         harness.Clock.Advance(TelemetryInterval);
-        _ = harness.Start(device, CreateSequence(device.Id, scenario), simulationStartedAt);
+        _ = harness.Start(device, CreateSchedule(device.Id, scenario), simulationStartedAt);
         await harness.Clock.WaitForDelayAsync();
 
         Assert.Equal(3, harness.Client.Requests.Count);
@@ -822,13 +822,13 @@ public sealed class DeviceTelemetryRunnerTests
             definition, secondDevice.Id, new FixedScenarioRandom());
         var simulationStartedAt = harness.Clock.GetTimestamp();
 
-        _ = harness.Start(firstDevice, CreateSequence(firstDevice.Id, firstScenario), simulationStartedAt);
+        _ = harness.Start(firstDevice, CreateSchedule(firstDevice.Id, firstScenario), simulationStartedAt);
         await harness.Clock.WaitForDelayAsync();
         Assert.Equal(ScenarioPhase.Pending, firstScenario.Phase);
 
         harness.Clock.Advance(TelemetryInterval);
         await harness.Clock.WaitForDelayAsync();
-        _ = harness.Start(secondDevice, CreateSequence(secondDevice.Id, secondScenario), simulationStartedAt);
+        _ = harness.Start(secondDevice, CreateSchedule(secondDevice.Id, secondScenario), simulationStartedAt);
         await harness.Clock.WaitForDelayAsync();
 
         Assert.Equal(ScenarioPhase.Active, firstScenario.Phase);
@@ -867,7 +867,7 @@ public sealed class DeviceTelemetryRunnerTests
         Assert.Equal(24.0, scenario.GetNextTemperature(24, TimeSpan.Zero));
         var simulationStartedAt = harness.Clock.GetTimestamp();
         harness.Clock.Advance(TelemetryInterval);
-        var operation = harness.Start(device, CreateSequence(device.Id, scenario), simulationStartedAt);
+        var operation = harness.Start(device, CreateSchedule(device.Id, scenario), simulationStartedAt);
 
         // Two retry delays, followed by the cycle delay after success.
         for (var attempt = 1; attempt <= 3; attempt++)
@@ -931,7 +931,7 @@ public sealed class DeviceTelemetryRunnerTests
         var scenario = new HighTemperatureScenarioRuntime(
             CreateScenarioDefinition() with { MaximumRisePerMeasurement = 20 },
             device.Id, new FixedScenarioRandom());
-        _ = harness.Start(device, CreateSequence(device.Id, scenario), harness.Clock.GetTimestamp());
+        _ = harness.Start(device, CreateSchedule(device.Id, scenario), harness.Clock.GetTimestamp());
         await AwaitAsync(humidityStarted.Task);
         Assert.Single(harness.Client.Requests);
         Assert.Null(scenario.CurrentTemperature);
@@ -964,7 +964,7 @@ public sealed class DeviceTelemetryRunnerTests
         harness.Clock.Advance(TelemetryInterval);
         await harness.Cancellation.CancelAsync();
 
-        var operation = harness.Start(device, CreateSequence(device.Id, scenario), simulationStartedAt);
+        var operation = harness.Start(device, CreateSchedule(device.Id, scenario), simulationStartedAt);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => AwaitAsync(operation));
 
         Assert.Empty(harness.Client.Requests);
@@ -988,7 +988,7 @@ public sealed class DeviceTelemetryRunnerTests
 
         var simulationStartedAt = harness.Clock.GetTimestamp();
         harness.Clock.Advance(TelemetryInterval);
-        var operation = harness.Start(device, CreateSequence(device.Id, scenario), simulationStartedAt);
+        var operation = harness.Start(device, CreateSchedule(device.Id, scenario), simulationStartedAt);
         await Assert.ThrowsAsync<NotSupportedException>(() => AwaitAsync(operation));
 
         Assert.Empty(harness.Client.Requests);
@@ -1009,7 +1009,7 @@ public sealed class DeviceTelemetryRunnerTests
         var scenario = new HighTemperatureScenarioRuntime(
             CreateScenarioDefinition(), device.Id, new FixedScenarioRandom());
 
-        await AwaitAsync(harness.Start(device, CreateSequence(device.Id, scenario), harness.Clock.GetTimestamp()));
+        await AwaitAsync(harness.Start(device, CreateSchedule(device.Id, scenario), harness.Clock.GetTimestamp()));
 
         Assert.Empty(harness.Client.Requests);
         Assert.Equal(0, harness.Clock.TimerCount);
@@ -1042,7 +1042,7 @@ public sealed class DeviceTelemetryRunnerTests
             AbnormalMinimum = 40,
             AbnormalMaximum = 44
         }, device.Id, new FixedScenarioRandom());
-        var sequence = CreateSequence(device.Id, first, second);
+        var sequence = CreateSchedule(device.Id, first, second);
         var operation = harness.Start(device, sequence, harness.Clock.GetTimestamp());
         var expectedFirstPhases = new[]
         {
@@ -1122,7 +1122,7 @@ public sealed class DeviceTelemetryRunnerTests
             AbnormalMinimum = 40,
             AbnormalMaximum = 44
         }, device.Id, new FixedScenarioRandom());
-        var operation = harness.Start(device, CreateSequence(device.Id, first, second),
+        var operation = harness.Start(device, CreateSchedule(device.Id, first, second),
             harness.Clock.GetTimestamp());
 
         await harness.Clock.WaitForDelayAsync();
@@ -1161,13 +1161,30 @@ public sealed class DeviceTelemetryRunnerTests
         Assert.Equal(completionMeasurement.NumericValue, first.CurrentTemperature);
     }
 
-    /// <summary>Creates a device sequence from existing, independently observable runtimes.</summary>
-    /// <param name="deviceId">The device that owns the runtimes.</param>
-    /// <param name="scenarios">The runtimes to execute in planned start order.</param>
-    /// <returns>A sequence used by the production runner overload.</returns>
-    private static DeviceTemperatureScenarioSequence CreateSequence(
-        Guid deviceId, params HighTemperatureScenarioRuntime[] scenarios) =>
-        new(deviceId, scenarios);
+    /// <summary>
+    /// Creates a device schedule containing one temperature sequence
+    /// from existing, independently observable runtimes.
+    /// </summary>
+    /// <param name="deviceId">
+    /// The device that owns the runtimes and schedule.
+    /// </param>
+    /// <param name="scenarios">
+    /// The existing runtimes to retain and execute in planned start order.
+    /// </param>
+    /// <returns>
+    /// A schedule used by the production runner overload.
+    /// </returns>
+    private static DeviceScenarioSchedule CreateSchedule(
+        Guid deviceId,
+        params HighTemperatureScenarioRuntime[] scenarios)
+    {
+        var sequence = new DeviceMetricScenarioSequence(
+            deviceId,
+            SimulatorTelemetryMetric.Temperature,
+            scenarios);
+
+        return new DeviceScenarioSchedule(deviceId, new[] { sequence });
+    }
 
     /// <summary>Creates a recoverable scenario with a target of 32 for the fixed random source.</summary>
     /// <returns>A definition with a one-minute start delay and limited temperature steps.</returns>
@@ -1314,10 +1331,10 @@ public sealed class DeviceTelemetryRunnerTests
         /// <returns>The runner task, including any validation or scenario failure.</returns>
         public Task Start(
             SimulatorDeviceResponse device,
-            DeviceTemperatureScenarioSequence? scenarioSequence,
+            DeviceScenarioSchedule? deviceScenarioSchedule,
             long simulationStartedAt)
         {
-            var operation = Runner.RunAsync(device, scenarioSequence, simulationStartedAt, Cancellation.Token);
+            var operation = Runner.RunAsync(device, deviceScenarioSchedule, simulationStartedAt, Cancellation.Token);
             _operations.Add(operation);
             return operation;
         }

@@ -36,29 +36,26 @@ public sealed class DeviceTelemetryCoordinator
 
     /// <summary>
     /// Runs telemetry loops concurrently for prepared devices,
-    /// passing each device its optional temperature scenario sequence
+    /// passing each device its optional scenario schedule
     /// and a shared simulation start timestamp.
     /// </summary>
     /// <remarks>
-    /// A device without an entry in the sequence dictionary runs with
-    /// normal telemetry. An empty dictionary enables normal telemetry
-    /// for all devices.
+    /// Devices without a schedule generate normal telemetry.
+    /// An empty dictionary enables normal telemetry for all devices.
     /// Terminal failures and caller-requested cancellation are handled
-    /// separately for each device. A failure in one device loop does not
-    /// stop the remaining loops.
+    /// separately for each device without stopping the remaining loops.
     /// </remarks>
     /// <param name="devices">
     /// The prepared active devices whose telemetry loops are started.
     /// </param>
-    /// <param name="sequencesByDevice">
-    /// The prepared temperature scenario sequences keyed by device identifier.
-    /// Devices without temperature scenarios may be absent from the dictionary.
+    /// <param name="schedule">
+    /// The prepared scenario schedules keyed by device identifier.
+    /// Devices without scenarios may be absent from the dictionary.
     /// </param>
     /// <param name="simulationStartedAt">
-    /// The shared timestamp captured before starting the telemetry loops
-    /// using the same TimeProvider as the telemetry runner.
-    /// This is a value obtained from GetTimestamp(), not UTC date-time ticks
-    /// or an elapsed duration.
+    /// The shared timestamp obtained from GetTimestamp() before starting
+    /// the loops, using the same TimeProvider as the telemetry runner.
+    /// This value is not a UTC timestamp or an elapsed duration.
     /// </param>
     /// <param name="cancellationToken">
     /// A token used to stop all device telemetry loops.
@@ -69,27 +66,27 @@ public sealed class DeviceTelemetryCoordinator
     /// </returns>
     /// <exception cref="ArgumentNullException">
     /// Thrown when <paramref name="devices"/> or
-    /// <paramref name="sequencesByDevice"/> is null.
+    /// <paramref name="schedule"/> is null.
     /// </exception>
-    public async Task RunAsync(IReadOnlyList<SimulatorDeviceResponse> devices, IReadOnlyDictionary<Guid, DeviceTemperatureScenarioSequence> sequencesByDevice, long simulationStartedAt, CancellationToken cancellationToken = default)
+    public async Task RunAsync(IReadOnlyList<SimulatorDeviceResponse> devices, IReadOnlyDictionary<Guid, DeviceScenarioSchedule> schedule, long simulationStartedAt, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(devices);
-        ArgumentNullException.ThrowIfNull(sequencesByDevice);
+        ArgumentNullException.ThrowIfNull(schedule);
 
         var tasks = new List<Task>();
 
         foreach (var device in devices)
         {
-            sequencesByDevice.TryGetValue(device.Id, out var sequence);
-            tasks.Add(RunDeviceAsync(device, sequence, simulationStartedAt, cancellationToken));
+            schedule.TryGetValue(device.Id, out var deviceSchedule);
+            tasks.Add(RunDeviceAsync(device, deviceSchedule, simulationStartedAt, cancellationToken));
         }
 
         await Task.WhenAll(tasks);
     }
 
     /// <summary>
-    /// Runs telemetry for one device with an optional temperature scenario
-    /// sequence, handling cancellation and isolating terminal failures.
+    /// Runs telemetry for one device with an optional scenario schedule,
+    /// handling cancellation and isolating terminal failures.
     /// </summary>
     /// <remarks>
     /// Caller-requested cancellation is logged as a normal stop.
@@ -99,12 +96,12 @@ public sealed class DeviceTelemetryCoordinator
     /// <param name="device">
     /// The prepared device whose telemetry loop is started.
     /// </param>
-    /// <param name="scenarioSequence">
-    /// The temperature scenario sequence prepared for this device,
-    /// or null to generate normal telemetry without temperature scenarios.
+    /// <param name="schedule">
+    /// The scenario schedule prepared for this device,
+    /// or null to generate normal telemetry without scenarios.
     /// </param>
     /// <param name="simulationStartedAt">
-    /// The shared simulation start timestamp, forwarded unchanged to the runner.
+    /// The shared simulation start timestamp, forwarded unchanged.
     /// It must originate from the same TimeProvider used by the runner
     /// to calculate elapsed simulation time.
     /// </param>
@@ -112,14 +109,14 @@ public sealed class DeviceTelemetryCoordinator
     /// A token used to stop the device telemetry loop.
     /// </param>
     /// <returns>
-    /// A task that completes when the device telemetry loop ends,
-    /// is canceled by the caller, or encounters a handled terminal failure.
+    /// A task that completes when the loop ends, is canceled by the caller,
+    /// or encounters a handled terminal failure.
     /// </returns>
-    private async Task RunDeviceAsync(SimulatorDeviceResponse device, DeviceTemperatureScenarioSequence? scenarioSequence, long simulationStartedAt, CancellationToken cancellationToken = default)
+    private async Task RunDeviceAsync(SimulatorDeviceResponse device, DeviceScenarioSchedule? schedule, long simulationStartedAt, CancellationToken cancellationToken = default)
     {
         try
         {
-            await _telemetryRunner.RunAsync(device, scenarioSequence, simulationStartedAt, cancellationToken);
+            await _telemetryRunner.RunAsync(device, schedule, simulationStartedAt, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
