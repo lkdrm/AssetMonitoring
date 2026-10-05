@@ -8,6 +8,11 @@ namespace AssetMonitoring.DeviceSimulator.Configuration.Validation;
 /// </summary>
 public sealed class SimulationPlanValidator
 {
+    private const string HighTemperatureCodePrefix = "Scenario.HighTemperature";
+    private const string TemperatureMetricName = "temperature";
+    private const string HighHumidityCodePrefix = "Scenario.HighHumidity";
+    private const string HumidityMetricName = "humidity";
+
     /// <summary>
     /// Validates the supplied simulation plan and returns all discovered
     /// errors.
@@ -121,9 +126,16 @@ public sealed class SimulationPlanValidator
 
         if (scenario is HighTemperatureScenarioDefinition temperatureScenarioDefinition)
         {
-            ValidateHighTemperature(temperatureScenarioDefinition, path, errors);
+            ValidateGradualDeviation(HighTemperatureCodePrefix, TemperatureMetricName, temperatureScenarioDefinition.AbnormalMinimum, temperatureScenarioDefinition.AbnormalMaximum,
+                path, temperatureScenarioDefinition.AutoRecover, temperatureScenarioDefinition.MaximumRisePerMeasurement, temperatureScenarioDefinition.MaximumRecoveryPerMeasurement, errors);
         }
+        else if (scenario is HighHumidityScenarioDefinition humidityScenarioDefinition)
+        {
+            ValidateGradualDeviation(HighHumidityCodePrefix, HumidityMetricName, humidityScenarioDefinition.AbnormalMinimum, humidityScenarioDefinition.AbnormalMaximum,
+                path, humidityScenarioDefinition.AutoRecover, humidityScenarioDefinition.MaximumRisePerMeasurement, humidityScenarioDefinition.MaximumRecoveryPerMeasurement, errors);
 
+            ValidateHumidityBounds(humidityScenarioDefinition, path, errors);
+        }
     }
 
     /// <summary>
@@ -218,46 +230,111 @@ public sealed class SimulationPlanValidator
     }
 
     /// <summary>
-    /// Validates high-temperature bounds and per-measurement rise and recovery limits.
+    /// Validates abnormal numeric target bounds and per-measurement rise
+    /// and recovery limits, collecting all discovered errors.
     /// </summary>
-    private static void ValidateHighTemperature(HighTemperatureScenarioDefinition scenario, string path, List<SimulationPlanValidationError> errors)
+    /// <remarks>
+    /// Non-finite bounds are reported individually and excluded from
+    /// range-order comparisons. The recovery limit is checked only
+    /// when automatic recovery is enabled.
+    /// </remarks>
+    /// <param name="codePrefix">
+    /// The stable scenario-specific prefix used to build validation error codes.
+    /// </param>
+    /// <param name="metricName">
+    /// The human-readable metric name used in validation error messages.
+    /// </param>
+    /// <param name="abnormalMinimum">
+    /// The lower bound used to select the abnormal target value.
+    /// Must be finite and lower than <paramref name="abnormalMaximum"/>.
+    /// </param>
+    /// <param name="abnormalMaximum">
+    /// The upper bound used to select the abnormal target value.
+    /// Must be finite and greater than <paramref name="abnormalMinimum"/>.
+    /// </param>
+    /// <param name="path">
+    /// The JSON path of the scenario being validated.
+    /// </param>
+    /// <param name="autoRecover">
+    /// Indicates whether automatic recovery is enabled and its
+    /// per-measurement limit must be validated.
+    /// </param>
+    /// <param name="maximumRise">
+    /// The maximum increase per measurement.
+    /// Must be finite and greater than zero.
+    /// </param>
+    /// <param name="maximumRecovery">
+    /// The maximum decrease per recovery measurement.
+    /// Must be finite and greater than zero when automatic recovery is enabled.
+    /// </param>
+    /// <param name="errors">
+    /// The collection to which discovered validation errors are appended.
+    /// Existing errors are preserved.
+    /// </param>
+    private static void ValidateGradualDeviation(string codePrefix, string metricName, double abnormalMinimum, double abnormalMaximum, string path, bool autoRecover, double maximumRise, double maximumRecovery, List<SimulationPlanValidationError> errors)
     {
-        var minimumIsFinite = double.IsFinite(scenario.AbnormalMinimum);
-        var maximumIsFinite = double.IsFinite(scenario.AbnormalMaximum);
+        var minimumIsFinite = double.IsFinite(abnormalMinimum);
+        var maximumIsFinite = double.IsFinite(abnormalMaximum);
 
         if (!minimumIsFinite)
         {
-            errors.Add(new("Scenario.HighTemperature.Minimum.NotFinite",
-                $"{path}.abnormalMinimum",
-                "Abnormal minimum temperature must be a finite number."));
+            errors.Add(new($"{codePrefix}.Minimum.NotFinite", $"{path}.abnormalMinimum", $"Abnormal minimum {metricName} must be a finite number."));
         }
 
         if (!maximumIsFinite)
         {
-            errors.Add(new("Scenario.HighTemperature.Maximum.NotFinite",
-                $"{path}.abnormalMaximum",
-                "Abnormal maximum temperature must be a finite number."));
+            errors.Add(new($"{codePrefix}.Maximum.NotFinite", $"{path}.abnormalMaximum", $"Abnormal maximum {metricName} must be a finite number."));
         }
 
-        if (minimumIsFinite && maximumIsFinite && scenario.AbnormalMinimum >= scenario.AbnormalMaximum)
+        if (minimumIsFinite && maximumIsFinite && abnormalMinimum >= abnormalMaximum)
         {
-            errors.Add(new("Scenario.HighTemperature.Range.Invalid",
-                $"{path}.abnormalMinimum",
-                "Abnormal minimum temperature must be lower than the abnormal maximum temperature."));
+            errors.Add(new($"{codePrefix}.Range.Invalid", $"{path}.abnormalMinimum", $"Abnormal minimum {metricName} must be lower than the abnormal maximum {metricName}."));
         }
 
-        if (!double.IsFinite(scenario.MaximumRisePerMeasurement) || scenario.MaximumRisePerMeasurement <= 0)
+        if (!double.IsFinite(maximumRise) || maximumRise <= 0)
         {
-            errors.Add(new("Scenario.HighTemperature.MaximumRise.Invalid",
-                $"{path}.maximumRisePerMeasurement",
-                "Maximum temperature rise per measurement must be finite and greater than zero."));
+            errors.Add(new($"{codePrefix}.MaximumRise.Invalid", $"{path}.maximumRisePerMeasurement",
+                $"Maximum {metricName} rise per measurement must be finite and greater than zero."));
         }
 
-        if (scenario.AutoRecover && (!double.IsFinite(scenario.MaximumRecoveryPerMeasurement) || scenario.MaximumRecoveryPerMeasurement <= 0))
+        if (autoRecover && (!double.IsFinite(maximumRecovery) || maximumRecovery <= 0))
         {
-            errors.Add(new("Scenario.HighTemperature.MaximumRecovery.Invalid",
-                $"{path}.maximumRecoveryPerMeasurement",
-                "Maximum temperature recovery per measurement must be finite and greater than zero when automatic recovery is enabled."));
+            errors.Add(new($"{codePrefix}.MaximumRecovery.Invalid", $"{path}.maximumRecoveryPerMeasurement",
+                $"Maximum {metricName} recovery per measurement must be finite and greater than zero when automatic recovery is enabled."));
+        }
+    }
+
+    /// <summary>
+    /// Validates the humidity-specific limits by reporting a finite minimum
+    /// below zero or a finite maximum above one hundred percent.
+    /// </summary>
+    /// <remarks>
+    /// Zero and one hundred percent are permitted.
+    /// This method complements the finite-value and range-order checks
+    /// performed by <see cref="ValidateGradualDeviation"/>.
+    /// Non-finite values are excluded to avoid duplicate errors.
+    /// </remarks>
+    /// <param name="scenario">
+    /// The high-humidity definition whose abnormal bounds are validated.
+    /// </param>
+    /// <param name="path">
+    /// The JSON path of the scenario being validated.
+    /// </param>
+    /// <param name="errors">
+    /// The collection to which humidity-bound errors are appended.
+    /// Existing errors are preserved.
+    /// </param>
+    private static void ValidateHumidityBounds(HighHumidityScenarioDefinition scenario, string path, List<SimulationPlanValidationError> errors)
+    {
+        if (double.IsFinite(scenario.AbnormalMinimum) && scenario.AbnormalMinimum < 0)
+        {
+            errors.Add(new($"{HighHumidityCodePrefix}.Range.OutOfBounds", $"{path}.abnormalMinimum",
+                $"Abnormal minimum {HumidityMetricName} cannot be lower than 0 %."));
+        }
+        if (double.IsFinite(scenario.AbnormalMaximum) && scenario.AbnormalMaximum > 100)
+        {
+            errors.Add(new($"{HighHumidityCodePrefix}.Range.OutOfBounds", $"{path}.abnormalMaximum",
+                $"Abnormal maximum {HumidityMetricName} cannot be greater than 100 %."));
         }
     }
 }

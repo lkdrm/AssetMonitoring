@@ -1,0 +1,16 @@
+{
+  "type": "HighHumidity",
+  "name": "GradualHighHumidity",
+  "startsAfter": "00:01:00",
+  "duration": "00:03:00",
+  "target": {
+    "mode": "SpecificDevice",
+    "deviceCode": "WH-001"
+  },
+  "autoRecover": true,
+  "recoveryDuration": "00:02:00",
+  "abnormalMinimum": 90,
+  "abnormalMaximum": 95,
+  "maximumRisePerMeasurement": 3,
+  "maximumRecoveryPerMeasurement": 3
+}

@@ -28,4 +28,5 @@ namespace AssetMonitoring.DeviceSimulator.Scenarios;
 /// </param>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(HighTemperatureScenarioDefinition), "HighTemperature")]
+[JsonDerivedType(typeof(HighHumidityScenarioDefinition), "HighHumidity")]
 public abstract record ScenarioDefinition(string Name, TimeSpan StartsAfter, TimeSpan Duration, ScenarioTargetDefinition Target, bool AutoRecover, TimeSpan? RecoveryDuration);
