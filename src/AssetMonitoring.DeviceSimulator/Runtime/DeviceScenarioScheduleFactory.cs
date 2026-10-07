@@ -1,4 +1,5 @@
-﻿using AssetMonitoring.DeviceSimulator.Interfaces;
+﻿using AssetMonitoring.DeviceSimulator.Api.Contracts;
+using AssetMonitoring.DeviceSimulator.Interfaces;
 using AssetMonitoring.DeviceSimulator.Scenarios;
 
 namespace AssetMonitoring.DeviceSimulator.Runtime;
@@ -24,7 +25,7 @@ public sealed class DeviceScenarioScheduleFactory
     /// Each metric sequence orders scenarios by their configured start delays
     /// and preserves input order when those delays are equal.
     /// Target resolution and plan validation are performed before this method.
-    /// The factory currently supports high-temperature definitions only.
+    /// The factory supports high-temperature and high-humidity definitions.
     /// </remarks>
     /// <param name="resolvedScenarios">
     /// The resolved scenarios in plan order, containing validated definitions
@@ -63,7 +64,7 @@ public sealed class DeviceScenarioScheduleFactory
 
         foreach (var resolvedScenario in resolvedScenarios)
         {
-            if (resolvedScenario.Definition is not HighTemperatureScenarioDefinition)
+            if (resolvedScenario.Definition is not HighTemperatureScenarioDefinition && resolvedScenario.Definition is not HighHumidityScenarioDefinition)
             {
                 throw new NotSupportedException($"Scenario type '{resolvedScenario.Definition.GetType().Name}' is not supported.");
             }
@@ -122,6 +123,7 @@ public sealed class DeviceScenarioScheduleFactory
         => definition switch
         {
             HighTemperatureScenarioDefinition highTemperature => new HighTemperatureScenarioRuntime(highTemperature, deviceId, random),
+            HighHumidityScenarioDefinition highHumidity => new HighHumidityScenarioRuntime(highHumidity, deviceId, random),
             _ => throw new NotSupportedException($"Scenario type '{definition.GetType().Name}' is not supported.")
         };
 }

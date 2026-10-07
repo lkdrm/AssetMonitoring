@@ -12,7 +12,7 @@ public sealed class ScenarioTargetResolver
     /// Selects compatible active devices according to the scenario target mode.
     /// </summary>
     /// <remarks>
-    /// Currently supports high-temperature scenarios.
+    /// Supports high-temperature and high-humidity scenarios.
     /// Compatible devices are ordered by code using ordinal comparison.
     /// Specific device codes are matched case-sensitively.
     /// Random selection uses the supplied random source without replacement.
@@ -49,12 +49,9 @@ public sealed class ScenarioTargetResolver
         ArgumentNullException.ThrowIfNull(devices);
         ArgumentNullException.ThrowIfNull(random);
 
-        if (scenario is not HighTemperatureScenarioDefinition)
-        {
-            throw new NotSupportedException($"Scenario type '{scenario.GetType().Name}' is not supported.");
-        }
+        var requiredCapability = GetRequiredCapability(scenario);
 
-        var compatibleDevices = devices.Where(device => device.Lifecycle == SimulatorDeviceLifecycle.Active && device.Capabilities.Contains(SimulatorDeviceCapability.Temperature))
+        var compatibleDevices = devices.Where(device => device.Lifecycle == SimulatorDeviceLifecycle.Active && (requiredCapability is null || device.Capabilities.Contains(requiredCapability.Value)))
             .OrderBy(device => device.Code, StringComparer.Ordinal).ToList();
 
         if (compatibleDevices.Count == 0)
@@ -116,4 +113,26 @@ public sealed class ScenarioTargetResolver
 
         throw new NotSupportedException($"Scenario target mode '{scenario.Target.Mode}' is not supported.");
     }
+
+    /// <summary>
+    /// Determines the device capability required by a supported scenario type.
+    /// </summary>
+    /// <param name="scenario">
+    /// The scenario definition whose required device capability is determined.
+    /// </param>
+    /// <returns>
+    /// <see cref="SimulatorDeviceCapability.Temperature"/> for a high-temperature
+    /// scenario, or <see cref="SimulatorDeviceCapability.Humidity"/> for a
+    /// high-humidity scenario.
+    /// </returns>
+    /// <exception cref="NotSupportedException">
+    /// Thrown when the type of <paramref name="scenario"/> is not supported.
+    /// </exception>
+    private static SimulatorDeviceCapability? GetRequiredCapability(ScenarioDefinition scenario)
+        => scenario switch
+        {
+            HighTemperatureScenarioDefinition => SimulatorDeviceCapability.Temperature,
+            HighHumidityScenarioDefinition => SimulatorDeviceCapability.Humidity,
+            _ => throw new NotSupportedException($"Scenario type '{scenario.GetType().Name}' is not supported.")
+        };
 }
