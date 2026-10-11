@@ -94,7 +94,7 @@ public sealed class DeviceTelemetryRunner
     /// <exception cref="InvalidTimeZoneException">
     /// Thrown when the configured warehouse time zone data is invalid.
     /// </exception>
-    public Task RunAsync(SimulatorDeviceResponse device, CancellationToken cancellationToken = default) 
+    public Task RunAsync(SimulatorDeviceResponse device, CancellationToken cancellationToken = default)
         => RunAsync(device, null, _timeProvider.GetTimestamp(), cancellationToken);
 
     /// <summary>
@@ -180,6 +180,13 @@ public sealed class DeviceTelemetryRunner
 
                 var elapsed = _timeProvider.GetElapsedTime(simulationStartedAt);
                 var outgoingMeasurement = schedule?.Apply(measurement, elapsed) ?? measurement;
+                if (outgoingMeasurement.NumericValue is double value)
+                {
+                    outgoingMeasurement = outgoingMeasurement with
+                    {
+                        NumericValue = Math.Round(value, 2)
+                    };
+                }
                 var result = await SendMeasurementWithRetryAsync(device, outgoingMeasurement, cancellationToken);
 
                 _logger.LogInformation("Telemetry request completed for device {DeviceCode} ({DeviceId}). Metric: {Metric}, Measurement ID: {MeasurementId}, Recorded: {Recorded}.",

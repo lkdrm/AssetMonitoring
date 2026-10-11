@@ -282,12 +282,15 @@ public sealed class DeviceScenarioScheduleTests
         Assert.Empty(runtime.Calls);
         Assert.Equal(ScenarioPhase.Pending, runtime.Phase);
 
-        var activeMeasurement = CreateMeasurement(runtime.Metric);
+        var activeMeasurement = CreateMeasurement(runtime.Metric) with
+        {
+            NumericValue = 24
+        };
         var activeResult = schedule.Apply(activeMeasurement, startsAfter);
 
         var call = Assert.Single(runtime.Calls);
         Assert.Equal(startsAfter, call.Elapsed);
-        Assert.Same(activeMeasurement, call.Measurement);
+        Assert.Equal(activeMeasurement with { NumericValue = pendingMeasurement.NumericValue }, call.Measurement);
         Assert.Same(runtime.LastResult, activeResult);
         Assert.Equal(ScenarioPhase.Active, runtime.Phase);
     }

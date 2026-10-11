@@ -19,6 +19,7 @@ public sealed class DeviceMetricScenarioSequence
     private readonly IReadOnlyList<IMeasurementScenarioRuntime> _scenarios;
     private int _currentScenarioIndex;
     private TimeSpan? _currentScenarioStartedAt;
+    private double? _lastMeasurementResult;
 
     /// <summary>
     /// Gets the identifier of the device whose measurements
@@ -115,6 +116,10 @@ public sealed class DeviceMetricScenarioSequence
     /// on a subsequent call.
     /// Invoke this method once per new measurement; delivery retries
     /// must reuse the previously returned measurement.
+    /// On the first call to a fresh numeric runtime, the preceding
+    /// sequence output supplies its initial value when available.
+    /// Later calls receive the current normal measurement,
+    /// allowing recovery to capture an up-to-date normal target.
     /// </remarks>
     /// <param name="measurement">
     /// The non-null measurement containing the normal value to process.
@@ -156,14 +161,28 @@ public sealed class DeviceMetricScenarioSequence
 
         if (scenario is null || elapsed < scenario.Definition.StartsAfter)
         {
+            _lastMeasurementResult = measurement.NumericValue;
             return measurement;
         }
 
+        var isStarting = _currentScenarioStartedAt is null;
+
         _currentScenarioStartedAt ??= elapsed;
+
+        var inputMeasurment = measurement;
+
+        if (isStarting && _lastMeasurementResult is double previousValue)
+        {
+            inputMeasurment = measurement with
+            {
+                NumericValue = previousValue
+            };
+        }
 
         var scenarioElapsed = scenario.Definition.StartsAfter + (elapsed - _currentScenarioStartedAt.Value);
 
-        var result = scenario.Apply(measurement, scenarioElapsed);
+        var result = scenario.Apply(inputMeasurment, scenarioElapsed);
+        _lastMeasurementResult = result.NumericValue;
 
         if (scenario.Phase == ScenarioPhase.Completed)
         {

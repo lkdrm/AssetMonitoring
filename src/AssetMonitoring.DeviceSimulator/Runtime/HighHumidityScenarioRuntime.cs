@@ -15,6 +15,7 @@ namespace AssetMonitoring.DeviceSimulator.Runtime;
 /// The definition is expected to have passed simulation plan validation.
 /// Humidity values are percentages; rise and recovery limits are expressed
 /// in percentage points per measurement.
+/// </remarks>
 public sealed class HighHumidityScenarioRuntime : IMeasurementScenarioRuntime
 {
     private readonly Guid _deviceId;

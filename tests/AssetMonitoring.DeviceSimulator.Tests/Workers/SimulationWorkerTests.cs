@@ -1682,7 +1682,10 @@ public sealed class SimulationWorkerTests
             Assert.InRange(temperature, 40d, 50d);
             if (expectedRandom is not null)
             {
-                Assert.Equal(40 + expectedRandom.NextDouble() * 10, temperature);
+                var expectedTarget = 40 + expectedRandom.NextDouble() * 10;
+                var expectedTemperature = Math.Round(expectedTarget, 2);
+
+                Assert.Equal(expectedTemperature, temperature);
             }
         }
         AssertSchedulesPreparedIsLogged(logger, 1, devices.Length);
