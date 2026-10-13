@@ -139,16 +139,52 @@ public sealed class SimulationPlanValidator
     }
 
     /// <summary>
-    /// Validates the combination of automatic recovery and recovery duration.
+    /// Validates automatic recovery and scenario-specific recovery duration rules.
     /// </summary>
+    /// <remarks>
+    /// Scenarios without automatic recovery are currently unsupported.
+    /// Door-open scenarios require a null recovery duration because recovery
+    /// restores normal behavior immediately.
+    /// Temperature and humidity scenarios require a positive recovery duration
+    /// when automatic recovery is enabled.
+    /// All applicable recovery errors are appended to the existing collection.
+    /// </remarks>
+    /// <param name="scenario">
+    /// The non-null scenario definition whose recovery configuration is validated.
+    /// </param>
+    /// <param name="path">
+    /// The JSON path of the scenario, used as the root of diagnostic paths.
+    /// </param>
+    /// <param name="errors">
+    /// The collection to which discovered validation errors are appended.
+    /// Existing errors are preserved.
+    /// </param>
     private static void ValidateRecovery(ScenarioDefinition scenario, string path, List<SimulationPlanValidationError> errors)
     {
+        if (!scenario.AutoRecover)
+        {
+            errors.Add(new("Scenario.AutoRecover.NotSupported",
+                $"{path}.autoRecover",
+                "Scenarios without automatic recovery are not supported yet."));
+        }
+
+        if (scenario is DoorOpenScenarioDefinition doorOpenScenarioDefinition)
+        {
+            if (doorOpenScenarioDefinition.RecoveryDuration is not null)
+            {
+                errors.Add(new("Scenario.RecoveryDuration.Unexpected",
+                    $"{path}.recoveryDuration",
+                    "Recovery duration must be null for door-open scenarios because recovery is immediate."));
+            }
+
+            return;
+        }
+
         if (scenario.AutoRecover)
         {
             if (scenario.RecoveryDuration is null || scenario.RecoveryDuration <= TimeSpan.Zero)
             {
-                errors.Add(new(
-                    "Scenario.RecoveryDuration.Invalid",
+                errors.Add(new("Scenario.RecoveryDuration.Invalid",
                     $"{path}.recoveryDuration",
                     "Recovery duration must be provided and greater than zero when automatic recovery is enabled."));
             }
@@ -156,14 +192,9 @@ public sealed class SimulationPlanValidator
             return;
         }
 
-        errors.Add(new("Scenario.AutoRecover.NotSupported",
-            $"{path}.autoRecover",
-            "Scenarios without automatic recovery are not supported yet."));
-
         if (scenario.RecoveryDuration is not null)
         {
-            errors.Add(new(
-                "Scenario.RecoveryDuration.Unexpected",
+            errors.Add(new("Scenario.RecoveryDuration.Unexpected",
                 $"{path}.recoveryDuration",
                 "Recovery duration must be null when automatic recovery is disabled."));
         }

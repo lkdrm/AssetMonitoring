@@ -25,7 +25,8 @@ public sealed class DeviceScenarioScheduleFactory
     /// Each metric sequence orders scenarios by their configured start delays
     /// and preserves input order when those delays are equal.
     /// Target resolution and plan validation are performed before this method.
-    /// The factory supports high-temperature and high-humidity definitions.
+    /// The factory supports high-temperature, high-humidity,
+    /// door-open, and light-on definitions.
     /// </remarks>
     /// <param name="resolvedScenarios">
     /// The resolved scenarios in plan order, containing validated definitions
@@ -34,9 +35,8 @@ public sealed class DeviceScenarioScheduleFactory
     /// to be non-null.
     /// </param>
     /// <param name="random">
-    /// The random source used sequentially to select each runtime's target.
-    /// Identical inputs, input order, and initial random state allow
-    /// reproducible target selection.
+    /// The shared random source used to select abnormal numeric targets.
+    /// Door-open and light-on runtimes do not consume this source.
     /// </param>
     /// <returns>
     /// A dictionary containing one schedule for each selected device identifier.
@@ -64,7 +64,11 @@ public sealed class DeviceScenarioScheduleFactory
 
         foreach (var resolvedScenario in resolvedScenarios)
         {
-            if (resolvedScenario.Definition is not HighTemperatureScenarioDefinition && resolvedScenario.Definition is not HighHumidityScenarioDefinition)
+            if (resolvedScenario.Definition is not (
+                HighTemperatureScenarioDefinition
+                or HighHumidityScenarioDefinition
+                or DoorOpenScenarioDefinition
+                or LightOnScenarioDefinition))
             {
                 throw new NotSupportedException($"Scenario type '{resolvedScenario.Definition.GetType().Name}' is not supported.");
             }
@@ -124,6 +128,8 @@ public sealed class DeviceScenarioScheduleFactory
         {
             HighTemperatureScenarioDefinition highTemperature => new HighTemperatureScenarioRuntime(highTemperature, deviceId, random),
             HighHumidityScenarioDefinition highHumidity => new HighHumidityScenarioRuntime(highHumidity, deviceId, random),
+            DoorOpenScenarioDefinition doorOpen => new DoorOpenScenarioRuntime(doorOpen, deviceId),
+            LightOnScenarioDefinition lightOn => new LightOnScenarioRuntime(lightOn, deviceId),
             _ => throw new NotSupportedException($"Scenario type '{definition.GetType().Name}' is not supported.")
         };
 }

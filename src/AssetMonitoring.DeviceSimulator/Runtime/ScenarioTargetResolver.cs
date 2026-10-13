@@ -12,7 +12,7 @@ public sealed class ScenarioTargetResolver
     /// Selects compatible active devices according to the scenario target mode.
     /// </summary>
     /// <remarks>
-    /// Supports high-temperature and high-humidity scenarios.
+    /// Supports high-temperature, high-humidity, door-open, and light-on scenarios.
     /// Compatible devices are ordered by code using ordinal comparison.
     /// Specific device codes are matched case-sensitively.
     /// Random selection uses the supplied random source without replacement.
@@ -122,8 +122,10 @@ public sealed class ScenarioTargetResolver
     /// </param>
     /// <returns>
     /// <see cref="SimulatorDeviceCapability.Temperature"/> for a high-temperature
-    /// scenario, or <see cref="SimulatorDeviceCapability.Humidity"/> for a
-    /// high-humidity scenario.
+    /// scenario, <see cref="SimulatorDeviceCapability.Humidity"/> for a
+    /// high-humidity scenario, or <see cref="SimulatorDeviceCapability.DoorState"/>
+    /// for a door-open scenario, or <see cref="SimulatorDeviceCapability.LightState"/>
+    /// for a light-on scenario.
     /// </returns>
     /// <exception cref="NotSupportedException">
     /// Thrown when the type of <paramref name="scenario"/> is not supported.
@@ -133,6 +135,8 @@ public sealed class ScenarioTargetResolver
         {
             HighTemperatureScenarioDefinition => SimulatorDeviceCapability.Temperature,
             HighHumidityScenarioDefinition => SimulatorDeviceCapability.Humidity,
+            DoorOpenScenarioDefinition => SimulatorDeviceCapability.DoorState,
+            LightOnScenarioDefinition => SimulatorDeviceCapability.LightState,
             _ => throw new NotSupportedException($"Scenario type '{scenario.GetType().Name}' is not supported.")
         };
 }
