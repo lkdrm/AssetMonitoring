@@ -168,13 +168,13 @@ public sealed class SimulationPlanValidator
                 "Scenarios without automatic recovery are not supported yet."));
         }
 
-        if (scenario is DoorOpenScenarioDefinition doorOpenScenarioDefinition)
+        if (scenario is DoorOpenScenarioDefinition or LightOnScenarioDefinition)
         {
-            if (doorOpenScenarioDefinition.RecoveryDuration is not null)
+            if (scenario.RecoveryDuration is not null)
             {
                 errors.Add(new("Scenario.RecoveryDuration.Unexpected",
                     $"{path}.recoveryDuration",
-                    "Recovery duration must be null for door-open scenarios because recovery is immediate."));
+                    "Recovery duration must be null for scenarios with immediate recovery."));
             }
 
             return;

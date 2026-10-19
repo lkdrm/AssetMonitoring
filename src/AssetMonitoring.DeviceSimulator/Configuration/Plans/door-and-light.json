@@ -1,0 +1,29 @@
+{
+  "name": "WarehouseDoorAndLight",
+  "scenarios": [
+    {
+      "type": "DoorOpen",
+      "name": "OpenDoor",
+      "startsAfter": "00:00:10",
+      "duration": "00:00:20",
+      "target": {
+        "mode": "SpecificDevice",
+        "deviceCode": "WH-009"
+      },
+      "autoRecover": true,
+      "recoveryDuration": null
+    },
+    {
+      "type": "LightOn",
+      "name": "TurnLightOn",
+      "startsAfter": "00:00:10",
+      "duration": "00:00:20",
+      "target": {
+        "mode": "SpecificDevice",
+        "deviceCode": "WH-009"
+      },
+      "autoRecover": true,
+      "recoveryDuration": null
+    }
+  ]
+}
