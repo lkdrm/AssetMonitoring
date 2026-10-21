@@ -126,6 +126,10 @@ public sealed class ScenarioTargetResolver
     /// high-humidity scenario, or <see cref="SimulatorDeviceCapability.DoorState"/>
     /// for a door-open scenario, or <see cref="SimulatorDeviceCapability.LightState"/>
     /// for a light-on scenario.
+    /// The telemetry capability required by a measurement scenario,
+    /// or <see langword="null"/> for a
+    /// <see cref="DeviceOfflineScenarioDefinition"/>, which requires
+    /// no specific device capability.
     /// </returns>
     /// <exception cref="NotSupportedException">
     /// Thrown when the type of <paramref name="scenario"/> is not supported.
@@ -137,6 +141,7 @@ public sealed class ScenarioTargetResolver
             HighHumidityScenarioDefinition => SimulatorDeviceCapability.Humidity,
             DoorOpenScenarioDefinition => SimulatorDeviceCapability.DoorState,
             LightOnScenarioDefinition => SimulatorDeviceCapability.LightState,
+            DeviceOfflineScenarioDefinition => null,
             _ => throw new NotSupportedException($"Scenario type '{scenario.GetType().Name}' is not supported.")
         };
 }

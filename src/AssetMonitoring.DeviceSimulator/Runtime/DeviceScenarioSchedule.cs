@@ -3,20 +3,21 @@
 namespace AssetMonitoring.DeviceSimulator.Runtime;
 
 /// <summary>
-/// Routes a device's telemetry measurements to the scenario sequence
-/// associated with each measurement's metric.
+/// Stores metric scenario sequences and scheduled connectivity outages for one device.
 /// </summary>
 /// <remarks>
-/// Each metric has its own sequence, so scenarios for different metrics
-/// can progress independently on the same device.
-/// Sequences are stateful and must be called sequentially with nondecreasing
-/// elapsed simulation time.
-/// The caller is responsible for supplying measurements from this device.
+/// Each metric has its own stateful sequence. Calls to Apply must be sequential
+/// and use nondecreasing elapsed simulation time.
+/// Offline checks read immutable windows only and can be performed concurrently
+/// by heartbeat and telemetry loops.
+/// The caller decides whether to send data based on IsOffline; Apply only
+/// transforms measurements and does not suppress sending.
 /// </remarks>
 public sealed class DeviceScenarioSchedule
 {
     private readonly Dictionary<SimulatorTelemetryMetric, DeviceMetricScenarioSequence> _sequenceByMetric;
-    
+    private readonly IReadOnlyList<DeviceOfflineWindow> _deviceOfflineWindows;
+
     /// <summary>
     /// Gets the identifier of the device whose measurements
     /// are processed by this schedule.
@@ -24,38 +25,58 @@ public sealed class DeviceScenarioSchedule
     public Guid DeviceId { get; }
 
     /// <summary>
-    /// Initializes a schedule containing at most one sequence per metric
-    /// for the specified device.
+    /// Initializes a device schedule containing metric sequences
+    /// and optional offline windows.
     /// </summary>
     /// <remarks>
-    /// Copies the supplied collection into a private dictionary.
-    /// The sequence instances themselves are reused rather than copied.
-    /// Creating a schedule does not advance its sequences.
+    /// Copies the sequence mapping and the offline window collection.
+    /// Sequence and window instances themselves are reused.
+    /// Construction does not advance any measurement scenario.
+    /// A schedule may contain only offline windows, only metric sequences,
+    /// both, or neither.
     /// </remarks>
     /// <param name="deviceId">
-    /// The nonempty identifier shared by every sequence in the schedule.
+    /// The nonempty identifier shared by every sequence and offline window.
     /// </param>
     /// <param name="sequences">
-    /// The sequences to associate with their telemetry metrics.
-    /// An empty collection is allowed.
-    /// Every item must be non-null and belong to the specified device.
-    /// No two items may handle the same metric.
+    /// The metric sequences. An empty collection is allowed.
+    /// Items must be non-null, belong to the specified device,
+    /// and handle distinct metrics.
+    /// </param>
+    /// <param name="deviceOfflineWindows">
+    /// The offline windows, or null when none are configured.
+    /// An empty collection is allowed. Items must be non-null and belong
+    /// to the specified device. Overlapping windows are allowed.
     /// </param>
     /// <exception cref="ArgumentNullException">
-    /// Thrown when <paramref name="sequences"/> is null.
+    /// Thrown when sequences is null.
     /// </exception>
     /// <exception cref="ArgumentException">
-    /// Thrown when <paramref name="deviceId"/> is empty,
-    /// the collection contains a null item or a sequence for another device,
-    /// or multiple sequences handle the same metric.
+    /// Thrown when the device identifier is empty, either collection contains
+    /// a null item or an item for another device, or multiple sequences
+    /// handle the same metric.
     /// </exception>
-    public DeviceScenarioSchedule(Guid deviceId, IEnumerable<DeviceMetricScenarioSequence> sequences)
+    public DeviceScenarioSchedule(Guid deviceId, IEnumerable<DeviceMetricScenarioSequence> sequences, IReadOnlyList<DeviceOfflineWindow>? deviceOfflineWindows = null)
     {
         ArgumentNullException.ThrowIfNull(sequences);
 
         if (deviceId == Guid.Empty)
         {
             throw new ArgumentException("Device ID cannot be empty.", nameof(deviceId));
+        }
+
+        var deviceOfflineWindowsCheck = deviceOfflineWindows?.ToArray() ?? [];
+        foreach (var deviceOffline in deviceOfflineWindowsCheck)
+        {
+            if (deviceOffline == null)
+            {
+                throw new ArgumentException("The offline window collection cannot contain null items.", nameof(deviceOfflineWindows));
+            }
+
+            if (deviceOffline.DeviceId != deviceId)
+            {
+                throw new ArgumentException("Every offline window must belong to the specified device.", nameof(deviceOfflineWindows));
+            }
         }
 
         var sequenceByMetric = new Dictionary<SimulatorTelemetryMetric, DeviceMetricScenarioSequence>();
@@ -75,6 +96,7 @@ public sealed class DeviceScenarioSchedule
 
         DeviceId = deviceId;
         _sequenceByMetric = sequenceByMetric;
+        _deviceOfflineWindows = deviceOfflineWindowsCheck;
     }
 
     /// <summary>
@@ -123,5 +145,34 @@ public sealed class DeviceScenarioSchedule
         }
 
         return sequence.Apply(measurement, elapsed);
+    }
+
+    /// <summary>
+    /// Determines whether any configured offline window is active
+    /// at the specified elapsed simulation time.
+    /// </summary>
+    /// <remarks>
+    /// Overlapping windows form one continuous offline period.
+    /// Each window includes its start and excludes its end.
+    /// This query does not advance metric sequences or retain execution state.
+    /// </remarks>
+    /// <param name="elapsed">
+    /// The nonnegative elapsed time since simulation startup.
+    /// </param>
+    /// <returns>
+    /// True when at least one window is active; otherwise, false.
+    /// An empty window collection returns false.
+    /// </returns>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// Thrown when elapsed is negative, including when no windows exist.
+    /// </exception>
+    public bool IsOffline(TimeSpan elapsed)
+    {
+        if (elapsed < TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(elapsed), elapsed, "Elapsed time cannot be negative.");
+        }
+
+        return _deviceOfflineWindows.Any(window => window.IsActiveAt(elapsed));
     }
 }

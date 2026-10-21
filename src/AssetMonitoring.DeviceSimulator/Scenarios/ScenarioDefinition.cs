@@ -31,4 +31,5 @@ namespace AssetMonitoring.DeviceSimulator.Scenarios;
 [JsonDerivedType(typeof(HighHumidityScenarioDefinition), "HighHumidity")]
 [JsonDerivedType(typeof(DoorOpenScenarioDefinition), "DoorOpen")]
 [JsonDerivedType(typeof(LightOnScenarioDefinition), "LightOn")]
+[JsonDerivedType(typeof(DeviceOfflineScenarioDefinition), "DeviceOffline")]
 public abstract record ScenarioDefinition(string Name, TimeSpan StartsAfter, TimeSpan Duration, ScenarioTargetDefinition Target, bool AutoRecover, TimeSpan? RecoveryDuration);

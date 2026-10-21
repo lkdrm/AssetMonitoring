@@ -1,5 +1,4 @@
-﻿using AssetMonitoring.DeviceSimulator.Api.Contracts;
-using AssetMonitoring.DeviceSimulator.Interfaces;
+﻿using AssetMonitoring.DeviceSimulator.Interfaces;
 using AssetMonitoring.DeviceSimulator.Scenarios;
 
 namespace AssetMonitoring.DeviceSimulator.Runtime;
@@ -60,7 +59,7 @@ public sealed class DeviceScenarioScheduleFactory
         ArgumentNullException.ThrowIfNull(resolvedScenarios);
         ArgumentNullException.ThrowIfNull(random);
 
-        var runtimesByDevice = new Dictionary<Guid, List<IMeasurementScenarioRuntime>>();
+        var partsByDevice = new Dictionary<Guid, DeviceScenarioParts>();
 
         foreach (var resolvedScenario in resolvedScenarios)
         {
@@ -68,7 +67,8 @@ public sealed class DeviceScenarioScheduleFactory
                 HighTemperatureScenarioDefinition
                 or HighHumidityScenarioDefinition
                 or DoorOpenScenarioDefinition
-                or LightOnScenarioDefinition))
+                or LightOnScenarioDefinition
+                or DeviceOfflineScenarioDefinition))
             {
                 throw new NotSupportedException($"Scenario type '{resolvedScenario.Definition.GetType().Name}' is not supported.");
             }
@@ -77,19 +77,28 @@ public sealed class DeviceScenarioScheduleFactory
             {
                 var runtime = CreateRuntime(resolvedScenario.Definition, device.Id, random);
 
-                if (!runtimesByDevice.TryGetValue(device.Id, out var deviceRuntimes))
+                if (!partsByDevice.TryGetValue(device.Id, out var deviceRuntimes))
                 {
-                    deviceRuntimes = new List<IMeasurementScenarioRuntime>();
-                    runtimesByDevice.Add(device.Id, deviceRuntimes);
+                    deviceRuntimes = new DeviceScenarioParts();
+                    partsByDevice.Add(device.Id, deviceRuntimes);
                 }
 
-                deviceRuntimes.Add(runtime);
+                if (runtime is null)
+                {
+                    if (resolvedScenario.Definition is DeviceOfflineScenarioDefinition deviceOfflineScenarioDefinition)
+                    {
+                        var offlineDevice = new DeviceOfflineWindow(deviceOfflineScenarioDefinition, device.Id);
+                        partsByDevice[device.Id].OfflineWindows.Add(offlineDevice);
+                    }
+
+                }
+                partsByDevice[device.Id].Runtimes.Add(runtime);
             }
         }
 
         var result = new Dictionary<Guid, DeviceScenarioSchedule>();
 
-        foreach (var (deviceId, runtimes) in runtimesByDevice)
+        foreach (var (deviceId, deviceScenarioParts) in partsByDevice)
         {
             var sequences = runtimes
                 .GroupBy(runtime => runtime.Metric)
@@ -123,13 +132,31 @@ public sealed class DeviceScenarioScheduleFactory
     /// <exception cref="ArgumentException">
     /// Thrown when <paramref name="deviceId"/> is empty.
     /// </exception>
-    private static IMeasurementScenarioRuntime CreateRuntime(ScenarioDefinition definition, Guid deviceId, Random random)
+    private static IMeasurementScenarioRuntime? CreateRuntime(ScenarioDefinition definition, Guid deviceId, Random random)
         => definition switch
         {
             HighTemperatureScenarioDefinition highTemperature => new HighTemperatureScenarioRuntime(highTemperature, deviceId, random),
             HighHumidityScenarioDefinition highHumidity => new HighHumidityScenarioRuntime(highHumidity, deviceId, random),
             DoorOpenScenarioDefinition doorOpen => new DoorOpenScenarioRuntime(doorOpen, deviceId),
             LightOnScenarioDefinition lightOn => new LightOnScenarioRuntime(lightOn, deviceId),
+            DeviceOfflineScenarioDefinition deviceOffline => null,
             _ => throw new NotSupportedException($"Scenario type '{definition.GetType().Name}' is not supported.")
         };
+
+    /// <summary>
+    /// Collects scenario runtimes and offline windows for one device
+    /// during schedule preparation.
+    /// </summary>
+    private sealed class DeviceScenarioParts
+    {
+        /// <summary>
+        /// Gets the measurement runtimes to group by telemetry metric.
+        /// </summary>
+        public List<IMeasurementScenarioRuntime> Runtimes { get; } = [];
+
+        /// <summary>
+        /// Gets the offline windows to include in the device schedule.
+        /// </summary>
+        public List<DeviceOfflineWindow> OfflineWindows { get; } = [];
+    }
 }

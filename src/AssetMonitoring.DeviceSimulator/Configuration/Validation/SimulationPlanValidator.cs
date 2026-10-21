@@ -168,7 +168,7 @@ public sealed class SimulationPlanValidator
                 "Scenarios without automatic recovery are not supported yet."));
         }
 
-        if (scenario is DoorOpenScenarioDefinition or LightOnScenarioDefinition)
+        if (scenario is DoorOpenScenarioDefinition or LightOnScenarioDefinition or DeviceOfflineScenarioDefinition)
         {
             if (scenario.RecoveryDuration is not null)
             {
